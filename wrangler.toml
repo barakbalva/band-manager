@@ -1,0 +1,10 @@
+name = "bands"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bands"
+# verify with: npx wrangler d1 list
+database_id = "59f089b0-a00e-43d6-b66b-29de9bc6da90"
