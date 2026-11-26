@@ -14,7 +14,7 @@ Barak writes in Hebrew; answer him in Hebrew.
 ## Deploy (the whole point: no more pasting code into the Cloudflare dashboard)
 1. One time: `npm install` then `npx wrangler login` (opens the browser; Barak approves).
 2. Check `database_id` in `wrangler.toml` against `npx wrangler d1 list` (the id was read off a photo — verify it before the first deploy, or the binding will break).
-3. Every change: `python3 build.py && npx wrangler deploy`.
+3. Every change: push to `main` on GitHub (barakbalva/band-manager). Cloudflare Workers Builds is connected (2026-11-26): build `npm run build` (= python3 build.py), deploy `npx wrangler deploy`. Manual fallback: `python3 build.py && npx wrangler deploy`.
 4. Verify: `curl -s https://bands.barakbalva.workers.dev/api/state` → `version` must match the build.
 
 Local testing: `npx wrangler dev --local` (local D1, setup screen appears on a fresh DB).
