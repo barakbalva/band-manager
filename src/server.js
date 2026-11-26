@@ -43,6 +43,10 @@ export default {
       if (p === '/manifest.webmanifest') return json(MANIFEST, 200, { 'content-type': 'application/manifest+json' });
       const ic = { '/apple-touch-icon.png': 180, '/icon-192.png': 192, '/icon-512.png': 512 }[p];
       if (ic) return new Response(Uint8Array.from(atob(ICONS[ic]), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
+      if (p === '/privacy' || p === '/terms') {
+        const want = url.searchParams.get('lang') || (request.headers.get('accept-language') || '').slice(0, 2).toLowerCase();
+        return new Response(legalPage(p.slice(1), want, parse(await kvGet(env, 'legal'))), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+      }
       if (p === '/icon.svg') return new Response(ICON_SVG, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
       // a self-updated page is used only while it matches the pasted Worker version
       const custom = (await kvGet(env, 'app_base')) === VERSION ? await kvGet(env, 'app_html') : null;
@@ -105,9 +109,11 @@ async function api(req, env, url, ctx) {
       if ((await kvGet(env, 'signup_open')) !== '1') return json({ error: 'signup_closed' }, 403);
       newBand = clean(b.bandName); if (!newBand) return json({ error: 'invalid' }, 400);
     }
+    if (!b.terms) return json({ error: 'terms' }, 400);
     if (await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(email).first()) return json({ error: 'email_taken' }, 409);
     const uid = newId(), now = Date.now();
     await env.DB.prepare('INSERT INTO users (id,email,name,pw,admin,created) VALUES (?,?,?,?,0,?)').bind(uid, email, name, await hashPw(b.password), now).run();
+    await kvSet(env, 'terms:' + uid, String(now));
     if (join) await addMember(env, join.id, uid, 'member');
     if (newBand) { const bid = newId(); await env.DB.prepare('INSERT INTO bands (id,name,pw,data,created) VALUES (?,?,?,?,?)').bind(bid, newBand, '-', JSON.stringify({ legacyOff: true }), now).run(); await addMember(env, bid, uid, 'owner'); }
     return withSession(env, { r: 'user', u: uid }, { ok: true });
@@ -115,6 +121,23 @@ async function api(req, env, url, ctx) {
   // invite link: anyone may see which band it is for
   const iv = p.match(/^\/api\/invite\/([\w.-]+)$/);
   if (iv && m === 'GET') { const bnd = await inviteBand(env, iv[1]); return bnd ? json({ band: bnd.name }) : json({ error: 'invite_invalid' }, 404); }
+  // "forgot password": a one-time link by email (needs the Email Service binding EMAIL, Workers Paid). Never tells whether the address exists.
+  if (p === '/api/forgot' && m === 'POST') {
+    if (!env.EMAIL) return json({ ok: false, mailer: false });
+    const b = await body(req);
+    const email = normEmail(b.email), lang = ['en', 'nl', 'fr', 'de', 'he'].includes(b.lang) ? b.lang : 'en';
+    const u = email && await env.DB.prepare('SELECT id,name FROM users WHERE email=?').bind(email).first();
+    const k = 'forgot:' + email, last = +(await kvGet(env, k) || 0);
+    if (u && Date.now() - last > 5 * 60e3) {
+      await kvSet(env, k, String(Date.now()));
+      const token = b64u(crypto.getRandomValues(new Uint8Array(24)));
+      await env.DB.prepare('INSERT INTO resets (hash,user,expires) VALUES (?,?,?)').bind(await sha256(token), u.id, Date.now() + 2 * 3600e3).run();
+      const M = MAIL_TEXT[lang], link = `${url.origin}/#reset=${token}`;
+      later(env.EMAIL.send({ to: email, from: { email: env.MAIL_FROM || 'no-reply@bandtwerp.com', name: 'BandBase' }, subject: M.subject,
+        text: `${M.hi} ${u.name || ''},\n\n${M.body}\n${link}\n\n${M.ignore}\n\nBandBase` }));
+    }
+    return json({ ok: true, mailer: true });
+  }
   if (p === '/api/reset' && m === 'POST') {
     const b = await body(req);
     if (!okUserPw(b.password)) return json({ error: 'invalid' }, 400);
@@ -259,11 +282,18 @@ async function api(req, env, url, ctx) {
         q('SELECT COUNT(*) n, MAX(created) last FROM users')]);
       const byBand = {}; for (const x of mem) (byBand[x.band] = byBand[x.band] || []).push(x);
       const it = {}; for (const x of items) it[x.band] = x;
-      return json({ users: users[0].n, lastUser: users[0].last, signupOpen: (await kvGet(env, 'signup_open')) === '1',
+      return json({ users: users[0].n, lastUser: users[0].last, signupOpen: (await kvGet(env, 'signup_open')) === '1', legal: parse(await kvGet(env, 'legal')), mailer: !!env.EMAIL,
         bands: bands.map(b => { const ms = byBand[b.id] || [], d = parse(b.data), i = it[b.id] || {};
           return { id: b.id, name: b.name, created: b.created, members: ms.length, owners: ms.filter(x => x.role === 'owner').map(x => ({ name: x.name, email: x.email })),
             people: ms.map(x => ({ name: x.name, email: x.email, role: x.role, joined: x.created })), legacy: !d.legacyOff && b.pw !== '-',
             calendar: !!d.calendarId, mail: !!d.inboxTokenHash, songs: i.songs || 0, setlists: i.setlists || 0, projects: i.projects || 0, last: i.last || null }; }) });
+    }
+    if (p === '/api/admin/legal' && m === 'PUT') {
+      const b = await body(req);
+      const email = normEmail(b.email);
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid' }, 400);
+      await kvSet(env, 'legal', JSON.stringify({ owner: clean(b.owner), email }));
+      return json({ ok: true });
     }
     if (p === '/api/admin/signup' && m === 'PUT') { const b = await body(req); await kvSet(env, 'signup_open', b.open ? '1' : '0'); return json({ ok: true }); }
     if (p === '/api/admin/band' && m === 'POST') {
@@ -576,6 +606,13 @@ async function inviteBand(env, token) {
   return row;
 }
 const INVITE_DAYS = 14;
+const MAIL_TEXT = {
+  en: { subject: 'Reset your BandBase password', hi: 'Hi', body: 'Click this link to choose a new password (valid for 2 hours):', ignore: 'Did not ask for this? Then you can ignore this email.' },
+  nl: { subject: 'Je BandBase-wachtwoord resetten', hi: 'Hoi', body: 'Klik op deze link om een nieuw wachtwoord te kiezen (2 uur geldig):', ignore: 'Niet gevraagd? Dan kun je deze mail negeren.' },
+  fr: { subject: 'Réinitialiser ton mot de passe BandBase', hi: 'Salut', body: 'Clique sur ce lien pour choisir un nouveau mot de passe (valable 2 heures) :', ignore: 'Tu n’as rien demandé ? Ignore simplement ce mail.' },
+  de: { subject: 'BandBase-Passwort zurücksetzen', hi: 'Hallo', body: 'Klicke auf diesen Link, um ein neues Passwort zu wählen (2 Stunden gültig):', ignore: 'Nicht angefordert? Dann kannst du diese Mail ignorieren.' },
+  he: { subject: 'איפוס הסיסמה ל-BandBase', hi: 'שלום', body: 'לחצו על הקישור כדי לבחור סיסמה חדשה (בתוקף שעתיים):', ignore: 'לא ביקשתם? אפשר להתעלם מהמייל הזה.' },
+};
 const normEmail = e => String(e || '').trim().toLowerCase().slice(0, 200);
 const okUserPw = s => typeof s === 'string' && s.length >= 8 && s.length <= 200;
 
@@ -840,3 +877,6 @@ self.addEventListener('fetch',e=>{const u=new URL(e.request.url);
  if(u.pathname.endsWith('/live'))return;
  e.respondWith(fetch(e.request).then(r=>{if(r.ok){const cl=r.clone();caches.open(C).then(c=>c.put(e.request,cl));}return r;}).catch(()=>caches.match(e.request).then(r=>r||new Response('{"error":"offline"}',{status:503,headers:{'content-type':'application/json'}}))));
 });`;
+
+// ---------- privacy policy + terms (src/legal.js, inlined by build.py) ----------
+/*__LEGAL__*/
