@@ -1,4 +1,4 @@
-// BandBase — Cloudflare Worker (backend + built-in frontend)
+// Bandtwerp App — Cloudflare Worker (backend + built-in frontend)
 // Needs one D1 binding named DB. Tables are created automatically.
 // The frontend HTML can be replaced at runtime by the admin (self-update),
 // so most changes never need a new paste into Cloudflare.
@@ -133,8 +133,8 @@ async function api(req, env, url, ctx) {
       const token = b64u(crypto.getRandomValues(new Uint8Array(24)));
       await env.DB.prepare('INSERT INTO resets (hash,user,expires) VALUES (?,?,?)').bind(await sha256(token), u.id, Date.now() + 2 * 3600e3).run();
       const M = MAIL_TEXT[lang], link = `${url.origin}/#reset=${token}`;
-      later(env.EMAIL.send({ to: email, from: { email: env.MAIL_FROM || 'no-reply@bandtwerp.com', name: 'BandBase' }, subject: M.subject,
-        text: `${M.hi} ${u.name || ''},\n\n${M.body}\n${link}\n\n${M.ignore}\n\nBandBase` }));
+      later(env.EMAIL.send({ to: email, from: { email: env.MAIL_FROM || 'no-reply@bandtwerp.com', name: 'Bandtwerp App' }, subject: M.subject,
+        text: `${M.hi} ${u.name || ''},\n\n${M.body}\n${link}\n\n${M.ignore}\n\nBandtwerp App` }));
     }
     return json({ ok: true, mailer: true });
   }
@@ -522,7 +522,7 @@ async function api(req, env, url, ctx) {
       if (!/^[\w-]{20,200}$/.test(keys.p256dh || '') || !/^[\w-]{10,100}$/.test(keys.auth || '')) return json({ error: 'invalid' }, 400);
       await env.DB.prepare('INSERT INTO push (endpoint,band,member,lang,keys,created) VALUES (?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET band=excluded.band, member=excluded.member, lang=excluded.lang, keys=excluded.keys')
         .bind(sub.endpoint, band, clean(me.n || '').slice(0, 40), ['he', 'en', 'nl', 'fr', 'de'].includes(b.lang) ? b.lang : 'en', JSON.stringify({ p256dh: keys.p256dh, auth: keys.auth }), Date.now()).run();
-      if (b.test) later(sendPush(env, { endpoint: sub.endpoint, keys }, { title: 'BandBase', body: PUSH_TEXT[b.lang in PUSH_TEXT ? b.lang : 'en'].test, tab: 'settings' }));
+      if (b.test) later(sendPush(env, { endpoint: sub.endpoint, keys }, { title: 'Bandtwerp App', body: PUSH_TEXT[b.lang in PUSH_TEXT ? b.lang : 'en'].test, tab: 'settings' }));
       return json({ ok: true });
     }
     // ----- Google Calendar (two-way, through a service account the band calendar is shared with) -----
@@ -607,11 +607,11 @@ async function inviteBand(env, token) {
 }
 const INVITE_DAYS = 14;
 const MAIL_TEXT = {
-  en: { subject: 'Reset your BandBase password', hi: 'Hi', body: 'Click this link to choose a new password (valid for 2 hours):', ignore: 'Did not ask for this? Then you can ignore this email.' },
-  nl: { subject: 'Je BandBase-wachtwoord resetten', hi: 'Hoi', body: 'Klik op deze link om een nieuw wachtwoord te kiezen (2 uur geldig):', ignore: 'Niet gevraagd? Dan kun je deze mail negeren.' },
-  fr: { subject: 'Réinitialiser ton mot de passe BandBase', hi: 'Salut', body: 'Clique sur ce lien pour choisir un nouveau mot de passe (valable 2 heures) :', ignore: 'Tu n’as rien demandé ? Ignore simplement ce mail.' },
-  de: { subject: 'BandBase-Passwort zurücksetzen', hi: 'Hallo', body: 'Klicke auf diesen Link, um ein neues Passwort zu wählen (2 Stunden gültig):', ignore: 'Nicht angefordert? Dann kannst du diese Mail ignorieren.' },
-  he: { subject: 'איפוס הסיסמה ל-BandBase', hi: 'שלום', body: 'לחצו על הקישור כדי לבחור סיסמה חדשה (בתוקף שעתיים):', ignore: 'לא ביקשתם? אפשר להתעלם מהמייל הזה.' },
+  en: { subject: 'Reset your Bandtwerp App password', hi: 'Hi', body: 'Click this link to choose a new password (valid for 2 hours):', ignore: 'Did not ask for this? Then you can ignore this email.' },
+  nl: { subject: 'Je Bandtwerp App-wachtwoord resetten', hi: 'Hoi', body: 'Klik op deze link om een nieuw wachtwoord te kiezen (2 uur geldig):', ignore: 'Niet gevraagd? Dan kun je deze mail negeren.' },
+  fr: { subject: 'Réinitialiser ton mot de passe Bandtwerp App', hi: 'Salut', body: 'Clique sur ce lien pour choisir un nouveau mot de passe (valable 2 heures) :', ignore: 'Tu n’as rien demandé ? Ignore simplement ce mail.' },
+  de: { subject: 'Bandtwerp App-Passwort zurücksetzen', hi: 'Hallo', body: 'Klicke auf diesen Link, um ein neues Passwort zu wählen (2 Stunden gültig):', ignore: 'Nicht angefordert? Dann kannst du diese Mail ignorieren.' },
+  he: { subject: 'איפוס הסיסמה ל-Bandtwerp App', hi: 'שלום', body: 'לחצו על הקישור כדי לבחור סיסמה חדשה (בתוקף שעתיים):', ignore: 'לא ביקשתם? אפשר להתעלם מהמייל הזה.' },
 };
 const normEmail = e => String(e || '').trim().toLowerCase().slice(0, 200);
 const okUserPw = s => typeof s === 'string' && s.length >= 8 && s.length <= 200;
@@ -861,13 +861,13 @@ function noDbPage() {
 <p dir="rtl" style="text-align:right">כמעט מוכן — צריך לחבר מסד נתונים D1 בשם המשתנה <b>DB</b> (Bindings → Add binding → D1).</p>`;
 }
 
-const MANIFEST = { name: 'BandBase', short_name: 'BandBase', start_url: '/', display: 'standalone', background_color: '#111114', theme_color: '#111114', icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }] };
+const MANIFEST = { name: 'Bandtwerp App', short_name: 'Bandtwerp', start_url: '/', display: 'standalone', background_color: '#111114', theme_color: '#111114', icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }] };
 const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#111114"/><path d="M20 46V18l26-6v28" fill="none" stroke="#f5a524" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="46" r="6" fill="#f5a524"/><circle cx="41" cy="40" r="6" fill="#f5a524"/></svg>`;
 
 // Offline support: the app page and the last band data are cached, so stage mode keeps working without signal.
 const SW_JS = `const C='bands-v1';
-self.addEventListener('push',e=>{let d={};try{d=e.data.json();}catch(x){d={title:'BandBase',body:e.data?e.data.text():''};}
- e.waitUntil(self.registration.showNotification(d.title||'BandBase',{body:d.body||'',icon:'/icon-192.png',badge:'/icon-192.png',data:{tab:d.tab||''}}));});
+self.addEventListener('push',e=>{let d={};try{d=e.data.json();}catch(x){d={title:'Bandtwerp App',body:e.data?e.data.text():''};}
+ e.waitUntil(self.registration.showNotification(d.title||'Bandtwerp App',{body:d.body||'',icon:'/icon-192.png',badge:'/icon-192.png',data:{tab:d.tab||''}}));});
 self.addEventListener('notificationclick',e=>{e.notification.close();const u='/'+(e.notification.data&&e.notification.data.tab?'#'+e.notification.data.tab:'');
  e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{for(const c of cs){if('focus' in c){c.navigate(u);return c.focus();}}return clients.openWindow(u);}));});
 self.addEventListener('install',e=>self.skipWaiting());

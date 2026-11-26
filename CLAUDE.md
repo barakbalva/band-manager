@@ -1,6 +1,6 @@
-# BandBase (bands.barakbalva.workers.dev)
+# Bandtwerp App (app.bandtwerp.com, formerly BandBase)
 
-BandHelper-style app for Barak's bands, named **BandBase**. Currently one band: **Ctrl-V** (rock cover band). Maria Unchained will be added later from the app's Settings (admin → "Add band"), no code change needed.
+BandHelper-style app for Barak's bands, named **Bandtwerp App** (renamed from BandBase on 2026-11-26 because bandbase.nl is an existing Dutch band app with the same name; never use "BandBase" in the app again, except the Google service account id below). Currently one band: **Ctrl-V** (rock cover band). Maria Unchained will be added later from the app's Settings (admin → "Add band"), no code change needed.
 Barak writes in Hebrew; answer him in Hebrew.
 
 ## Layout
@@ -8,7 +8,7 @@ Barak writes in Hebrew; answer him in Hebrew.
 - `src/app.html` – the whole frontend (one file, vanilla JS, languages EN/NL/FR/DE/HE in `T`, RTL aware for HE). Every new UI string needs all 5 languages (also `PUSH_TEXT` in server.js).
 - `build.py` – builds `worker.js` (run `python3 build.py`).
 - `worker.js` – build output that gets deployed. Never edit by hand.
-- `src/icons/` – app icons (the BandBase shield logo `logo.jpg`, cropped by `make_icons.py`). `build.py` embeds the PNGs; served at `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`.
+- `src/icons/` – app icons (the shield logo `logo.jpg`, cropped by `make_icons.py`). `build.py` embeds the PNGs; served at `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`.
 - `wrangler.toml` – Worker name `bands`, D1 binding `DB` → database `bands`.
 
 ## Deploy (the whole point: no more pasting code into the Cloudflare dashboard)
@@ -56,7 +56,7 @@ Chords are always stored in the ORIGINAL key; the app transposes on display with
 
 ## Backups
 - Cron (`wrangler.toml` [triggers], Monday 03:00 UTC; the daily 06:00 cron is only for project reminders) → `scheduled()` stores a snapshot of every band in table `backups` (last 12 per band). Same shape as "Export backup", so "Import backup" restores it. Admin: Settings → Backups (list, download, "Back up now").
-- Off-site copy: the Gmail Apps Script also runs `backupToDrive` weekly → `GET /api/inbox/:band/backup` (inbox token) → Drive folder "BandBase backups" (last 12). Scripts made before 2026-11-24 only sync mail. Ctrl-V's script got `setupBackup` + `backupToDrive` appended by hand (same token) on 2026-11-24 and works: triggers syncInbox (5 min) + backupToDrive (Mon 05:00).
+- Off-site copy: the Gmail Apps Script also runs `backupToDrive` weekly → `GET /api/inbox/:band/backup` (inbox token) → Drive folder "Bandtwerp backups" (scripts made before 2026-11-26 still write to "BandBase backups") (last 12). Scripts made before 2026-11-24 only sync mail. Ctrl-V's script got `setupBackup` + `backupToDrive` appended by hand (same token) on 2026-11-24 and works: triggers syncInbox (5 min) + backupToDrive (Mon 05:00).
 
 ## Availability, gig details, notifications, song extras
 - Availability: table `avail` (band, event = Google event id, member = login name, yes|no|maybe); returned inside the calendar GET as `event.avail`. Band roster for "no answer yet" = `bands.data.members` (Settings → band members).
@@ -73,4 +73,4 @@ Social media / video projects. Stored in `items` as kind `project`:
 
 ## Ideas Barak has mentioned
 - Brainstorm songs: section chords filled 2026-11-26 (7 of 8; "In de maneschijn" is Barak's own arrangement, left as is). Verify by ear when they start learning them.
-- Plan: bandtwerp.com = blog about band gigs/projects; app.bandtwerp.com = BandBase for any band (free first, paid later).
+- Plan: bandtwerp.com = blog about band gigs/projects; app.bandtwerp.com = Bandtwerp App for any band (free first, paid later).
