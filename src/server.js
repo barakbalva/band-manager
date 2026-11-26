@@ -235,6 +235,22 @@ async function api(req, env, url, ctx) {
   if (p.startsWith('/api/admin/')) {
     const ob = p.match(/^\/api\/admin\/band\/([\w-]+)(\/inbox-token)?$/);
     if (me.r !== 'admin' && !(ob && (ob[2] ? m === 'POST' : m === 'PUT') && (await bandRole(env, me, ob[1])) === 'owner')) return json({ error: 'forbidden' }, 403);
+    // control panel: every band with its members, owners and activity
+    if (p === '/api/admin/overview' && m === 'GET') {
+      const q = sql => env.DB.prepare(sql).all().then(r => r.results);
+      const [bands, mem, items, users] = await Promise.all([
+        q('SELECT id,name,data,created FROM bands ORDER BY created'),
+        q('SELECT m.band,m.role,m.created,u.name,u.email FROM members m JOIN users u ON u.id=m.user ORDER BY m.created'),
+        q("SELECT band, SUM(kind='song') songs, SUM(kind='setlist') setlists, SUM(kind='project') projects, MAX(updated) last FROM items GROUP BY band"),
+        q('SELECT COUNT(*) n, MAX(created) last FROM users')]);
+      const byBand = {}; for (const x of mem) (byBand[x.band] = byBand[x.band] || []).push(x);
+      const it = {}; for (const x of items) it[x.band] = x;
+      return json({ users: users[0].n, lastUser: users[0].last, signupOpen: (await kvGet(env, 'signup_open')) === '1',
+        bands: bands.map(b => { const ms = byBand[b.id] || [], d = parse(b.data), i = it[b.id] || {};
+          return { id: b.id, name: b.name, created: b.created, members: ms.length, owners: ms.filter(x => x.role === 'owner').map(x => ({ name: x.name, email: x.email })),
+            people: ms.map(x => ({ name: x.name, email: x.email, role: x.role, joined: x.created })), legacy: !d.legacyOff && b.pw !== '-',
+            calendar: !!d.calendarId, mail: !!d.inboxTokenHash, songs: i.songs || 0, setlists: i.setlists || 0, projects: i.projects || 0, last: i.last || null }; }) });
+    }
     if (p === '/api/admin/signup' && m === 'PUT') { const b = await body(req); await kvSet(env, 'signup_open', b.open ? '1' : '0'); return json({ ok: true }); }
     if (p === '/api/admin/band' && m === 'POST') {
       const b = await body(req);

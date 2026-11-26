@@ -33,6 +33,7 @@ Chords are always stored in the ORIGINAL key; the app transposes on display with
 - Invite link: `/#invite=<bandId>.<random>`; band keeps `inviteHash` + `inviteExp` (14 days) in `bands.data`; a new link replaces the old. Owners: `/api/band/:id/invite` (POST/DELETE), `/members` (GET), `/members/:uid` (PUT role, DELETE), `/members/:uid/reset` (POST → `/#reset=<token>` link; no email sending yet).
 - Band owners may also use `PUT /api/admin/band/:id` (name, calendarId, shared password, `legacyOff`) and `POST /api/admin/band/:id/inbox-token`; backups too.
 - Legacy (still works until switched off): admin password (kv `admin`) and one shared password per band. `bands.data.legacyOff` blocks the band password and its sessions. Settings → "Make your personal account" (`POST /api/account/claim`, legacy admin only, once): creates the platform-admin user, owner of all bands.
+- Admin control panel: Settings → "Control panel" (`GET /api/admin/overview`): every band, owners, members, songs, last change, calendar/mail/legacy flags.
 - Not done yet (step 3): password-reset emails, landing page, privacy policy/terms, payments. PBKDF2 is only 5000 iterations (Workers Free CPU limit) — raise on a paid plan.
 ## Google Calendar (two-way)
 - Calendar tab reads/writes the band's own Google Calendar through `/api/band/:id/cal` (GET list, POST, PUT/:eid, DELETE/:eid). Events are NOT stored in D1.
