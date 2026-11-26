@@ -61,5 +61,5 @@ Social media / video projects. Stored in `items` as kind `project`:
 - Push: new project (from the app); daily cron `0 6 * * *` → `remindDeadlines()` pushes for project deadlines and undone tasks due today/tomorrow (Europe/Brussels), once each (kv `due:...`).
 
 ## Ideas Barak has mentioned
-- Fill chords for the 8 "parked" brainstorm songs when they start learning them
+- Brainstorm songs: section chords filled 2026-11-26 (7 of 8; "In de maneschijn" is Barak's own arrangement, left as is). Verify by ear when they start learning them.
 - Custom domain for the band later
