@@ -19,6 +19,12 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, band TEXT NOT NULL, created INTEGER, size INTEGER, data TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS backups_band ON backups(band, created)`,
   `CREATE TABLE IF NOT EXISTS push (endpoint TEXT PRIMARY KEY, band TEXT NOT NULL, member TEXT, lang TEXT, keys TEXT NOT NULL, created INTEGER)`,
+  // personal accounts (email + password); a user belongs to bands through `members`
+  `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT, pw TEXT NOT NULL, admin INTEGER DEFAULT 0, created INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS members (band TEXT NOT NULL, user TEXT NOT NULL, role TEXT NOT NULL, created INTEGER, PRIMARY KEY (band, user))`,
+  `CREATE INDEX IF NOT EXISTS members_user ON members(user)`,
+  // one-time password reset links (only the SHA-256 of the token is stored)
+  `CREATE TABLE IF NOT EXISTS resets (hash TEXT PRIMARY KEY, user TEXT NOT NULL, expires INTEGER NOT NULL)`,
 ];
 const BACKUPS_KEPT = 12;
 let schemaReady = false;
@@ -66,7 +72,9 @@ async function api(req, env, url, ctx) {
   if (p === '/api/state' && m === 'GET') {
     const admin = await kvGet(env, 'admin');
     const bands = me ? await bandsFor(env, me) : [];
-    return json({ setup: !admin, me: me ? { role: me.r, band: me.b || null, name: me.n || '' } : null, bands, version: VERSION, custom: (await kvGet(env, 'app_base')) === VERSION && !!(await kvGet(env, 'app_html')) });
+    const hasUsers = !!(await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first());
+    return json({ setup: !admin && !hasUsers, me: me ? { role: me.r, user: !!me.u, email: me.email || '', band: me.b || null, name: me.n || '' } : null, bands,
+      signupOpen: (await kvGet(env, 'signup_open')) === '1', hasUsers, version: VERSION, custom: (await kvGet(env, 'app_base')) === VERSION && !!(await kvGet(env, 'app_html')) });
   }
 
   if (p === '/api/setup' && m === 'POST') {
@@ -80,6 +88,43 @@ async function api(req, env, url, ctx) {
     return withSession(env, { r: 'admin', n: clean(b.name || '') }, { ok: true });
   }
 
+  if (p === '/api/login' && m === 'POST' && (await body(req.clone())).email) {
+    const b = await body(req);
+    const u = await env.DB.prepare('SELECT id,pw FROM users WHERE email=?').bind(normEmail(b.email)).first();
+    if (u && await checkPw(String(b.password || ''), u.pw)) return withSession(env, { r: 'user', u: u.id }, { ok: true });
+    await new Promise(r => setTimeout(r, 600));
+    return json({ error: 'wrong_password' }, 401);
+  }
+  if (p === '/api/signup' && m === 'POST') {
+    const b = await body(req);
+    const email = normEmail(b.email), name = clean(b.name).slice(0, 40);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !name || !okUserPw(b.password)) return json({ error: 'invalid' }, 400);
+    let join = null, newBand = null;
+    if (b.invite) { join = await inviteBand(env, b.invite); if (!join) return json({ error: 'invite_invalid' }, 400); }
+    else {
+      if ((await kvGet(env, 'signup_open')) !== '1') return json({ error: 'signup_closed' }, 403);
+      newBand = clean(b.bandName); if (!newBand) return json({ error: 'invalid' }, 400);
+    }
+    if (await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(email).first()) return json({ error: 'email_taken' }, 409);
+    const uid = newId(), now = Date.now();
+    await env.DB.prepare('INSERT INTO users (id,email,name,pw,admin,created) VALUES (?,?,?,?,0,?)').bind(uid, email, name, await hashPw(b.password), now).run();
+    if (join) await addMember(env, join.id, uid, 'member');
+    if (newBand) { const bid = newId(); await env.DB.prepare('INSERT INTO bands (id,name,pw,data,created) VALUES (?,?,?,?,?)').bind(bid, newBand, '-', JSON.stringify({ legacyOff: true }), now).run(); await addMember(env, bid, uid, 'owner'); }
+    return withSession(env, { r: 'user', u: uid }, { ok: true });
+  }
+  // invite link: anyone may see which band it is for
+  const iv = p.match(/^\/api\/invite\/([\w.-]+)$/);
+  if (iv && m === 'GET') { const bnd = await inviteBand(env, iv[1]); return bnd ? json({ band: bnd.name }) : json({ error: 'invite_invalid' }, 404); }
+  if (p === '/api/reset' && m === 'POST') {
+    const b = await body(req);
+    if (!okUserPw(b.password)) return json({ error: 'invalid' }, 400);
+    const h = await sha256(String(b.token || ''));
+    const r = await env.DB.prepare('SELECT user,expires FROM resets WHERE hash=?').bind(h).first();
+    if (!r || r.expires < Date.now()) return json({ error: 'reset_invalid' }, 400);
+    await env.DB.batch([env.DB.prepare('UPDATE users SET pw=? WHERE id=?').bind(await hashPw(b.password), r.user), env.DB.prepare('DELETE FROM resets WHERE user=?').bind(r.user)]);
+    return withSession(env, { r: 'user', u: r.user }, { ok: true });
+  }
+
   if (p === '/api/login' && m === 'POST') {
     const b = await body(req);
     const pw = String(b.password || '');
@@ -87,8 +132,8 @@ async function api(req, env, url, ctx) {
     if (!pw) return json({ error: 'invalid' }, 400);
     const admin = await kvGet(env, 'admin');
     if (admin && await checkPw(pw, admin)) return withSession(env, { r: 'admin', n: name }, { ok: true, role: 'admin' });
-    const { results } = await env.DB.prepare('SELECT id, pw FROM bands').all();
-    for (const r of results) if (await checkPw(pw, r.pw)) return withSession(env, { r: 'band', b: r.id, n: name }, { ok: true, role: 'band' });
+    const { results } = await env.DB.prepare('SELECT id, pw, data FROM bands').all();
+    for (const r of results) if (!parse(r.data).legacyOff && r.pw !== '-' && await checkPw(pw, r.pw)) return withSession(env, { r: 'band', b: r.id, n: name }, { ok: true, role: 'band' });
     await new Promise(r => setTimeout(r, 600));
     return json({ error: 'wrong_password' }, 401);
   }
@@ -134,14 +179,63 @@ async function api(req, env, url, ctx) {
 
   if (p === '/api/me' && m === 'PUT') {
     const b = await body(req);
-    return withSession(env, { ...me, n: clean(b.name || '').slice(0, 40) }, { ok: true });
+    const n = clean(b.name || '').slice(0, 40);
+    if (me.u) { if (n) await env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(n, me.u).run(); return json({ ok: true }); }
+    return withSession(env, { ...me, n }, { ok: true });
+  }
+  if (p === '/api/account' && m === 'PUT') {
+    if (!me.u) return json({ error: 'forbidden' }, 403);
+    const b = await body(req);
+    const u = await env.DB.prepare('SELECT pw FROM users WHERE id=?').bind(me.u).first();
+    if (!u || !(await checkPw(String(b.oldPassword || ''), u.pw))) { await new Promise(r => setTimeout(r, 600)); return json({ error: 'wrong_password' }, 401); }
+    if (b.email) {
+      const email = normEmail(b.email);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid' }, 400);
+      const ex = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(email).first();
+      if (ex && ex.id !== me.u) return json({ error: 'email_taken' }, 409);
+      await env.DB.prepare('UPDATE users SET email=? WHERE id=?').bind(email, me.u).run();
+    }
+    if (b.password) { if (!okUserPw(b.password)) return json({ error: 'invalid' }, 400); await env.DB.prepare('UPDATE users SET pw=? WHERE id=?').bind(await hashPw(b.password), me.u).run(); }
+    return json({ ok: true });
+  }
+  if (iv && m === 'POST') {
+    if (!me.u) return json({ error: 'need_account' }, 403);
+    const bnd = await inviteBand(env, iv[1]); if (!bnd) return json({ error: 'invite_invalid' }, 404);
+    await addMember(env, bnd.id, me.u, 'member');
+    return json({ ok: true, band: bnd.id });
+  }
+  // the old admin (shared admin password) makes the first personal account: platform admin, owner of every band
+  if (p === '/api/account/claim' && m === 'POST') {
+    if (me.r !== 'admin' || me.u) return json({ error: 'forbidden' }, 403);
+    if (await env.DB.prepare('SELECT 1 FROM users WHERE admin=1').first()) return json({ error: 'already_claimed' }, 409);
+    const b = await body(req);
+    const email = normEmail(b.email), name = clean(b.name).slice(0, 40);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !name || !okUserPw(b.password)) return json({ error: 'invalid' }, 400);
+    if (await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(email).first()) return json({ error: 'email_taken' }, 409);
+    const uid = newId();
+    await env.DB.prepare('INSERT INTO users (id,email,name,pw,admin,created) VALUES (?,?,?,?,1,?)').bind(uid, email, name, await hashPw(b.password), Date.now()).run();
+    const { results } = await env.DB.prepare('SELECT id FROM bands').all();
+    for (const r of results) await addMember(env, r.id, uid, 'owner');
+    return withSession(env, { r: 'user', u: uid }, { ok: true });
+  }
+  // a signed-in user starts a new band (admin always; others when sign-up is open)
+  if (p === '/api/bands' && m === 'POST') {
+    if (!me.u) return json({ error: 'need_account' }, 403);
+    if (me.r !== 'admin' && (await kvGet(env, 'signup_open')) !== '1') return json({ error: 'signup_closed' }, 403);
+    const b = await body(req); const name = clean(b.name); if (!name) return json({ error: 'invalid' }, 400);
+    const bid = newId();
+    await env.DB.prepare('INSERT INTO bands (id,name,pw,data,created) VALUES (?,?,?,?,?)').bind(bid, name, '-', JSON.stringify({ legacyOff: true }), Date.now()).run();
+    await addMember(env, bid, me.u, 'owner');
+    return json({ ok: true, id: bid });
   }
 
   if (p === '/api/push/key' && m === 'GET') return json({ key: (await vapid(env)).pub });
 
   // ----- admin -----
   if (p.startsWith('/api/admin/')) {
-    if (me.r !== 'admin') return json({ error: 'forbidden' }, 403);
+    const ob = p.match(/^\/api\/admin\/band\/([\w-]+)(\/inbox-token)?$/);
+    if (me.r !== 'admin' && !(ob && (ob[2] ? m === 'POST' : m === 'PUT') && (await bandRole(env, me, ob[1])) === 'owner')) return json({ error: 'forbidden' }, 403);
+    if (p === '/api/admin/signup' && m === 'PUT') { const b = await body(req); await kvSet(env, 'signup_open', b.open ? '1' : '0'); return json({ ok: true }); }
     if (p === '/api/admin/band' && m === 'POST') {
       const b = await body(req);
       if (!clean(b.name) || !okPw(b.password)) return json({ error: 'invalid' }, 400);
@@ -162,10 +256,15 @@ async function api(req, env, url, ctx) {
     if (mm && m === 'PUT') {
       const b = await body(req);
       if (b.name && clean(b.name)) await env.DB.prepare('UPDATE bands SET name=? WHERE id=?').bind(clean(b.name), mm[1]).run();
+      if ('legacyOff' in b) {
+        const row = await env.DB.prepare('SELECT data FROM bands WHERE id=?').bind(mm[1]).first();
+        if (row) await env.DB.prepare('UPDATE bands SET data=? WHERE id=?').bind(JSON.stringify({ ...parse(row.data), legacyOff: !!b.legacyOff }), mm[1]).run();
+      }
       if (b.password) {
         if (!okPw(b.password)) return json({ error: 'invalid' }, 400);
         if (await pwInUse(env, b.password, mm[1])) return json({ error: 'password_in_use' }, 409);
-        await env.DB.prepare('UPDATE bands SET pw=? WHERE id=?').bind(await hashPw(b.password), mm[1]).run();
+        const row = await env.DB.prepare('SELECT data FROM bands WHERE id=?').bind(mm[1]).first();
+        await env.DB.prepare('UPDATE bands SET pw=?, data=? WHERE id=?').bind(await hashPw(b.password), JSON.stringify({ ...parse(row && row.data), legacyOff: false }), mm[1]).run();
       }
       if ('calendarId' in b) {
         const cid = String(b.calendarId || '').trim();
@@ -201,14 +300,57 @@ async function api(req, env, url, ctx) {
   const bm = p.match(/^\/api\/band\/([\w-]+)(\/.*)?$/);
   if (bm) {
     const band = bm[1], rest = bm[2] || '';
-    if (!(me.r === 'admin' || me.b === band)) return json({ error: 'forbidden' }, 403);
+    const role = await bandRole(env, me, band);
+    if (!role) return json({ error: 'forbidden' }, 403);
     const row = await env.DB.prepare('SELECT id,name,data FROM bands WHERE id=?').bind(band).first();
     if (!row) return json({ error: 'not_found' }, 404);
+    if (role === 'band' && parse(row.data).legacyOff) return json({ error: 'auth' }, 401); // shared password was switched off
+    const manager = role === 'admin' || role === 'owner';
+
+    // ----- members, invite link, reset links (owners) -----
+    if (rest === '/members' && m === 'GET') {
+      const { results } = await env.DB.prepare('SELECT u.id,u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user WHERE m.band=? ORDER BY m.created').bind(band).all();
+      const d = parse(row.data);
+      return json({ members: results.map(r => manager ? r : { id: r.id, name: r.name, role: r.role }), invite: manager ? { on: !!d.inviteHash && d.inviteExp > Date.now(), exp: d.inviteExp || 0 } : null, legacyOff: !!d.legacyOff, myRole: role });
+    }
+    if (rest === '/invite' && (m === 'POST' || m === 'DELETE')) {
+      if (!manager) return json({ error: 'forbidden' }, 403);
+      const d = parse(row.data);
+      if (m === 'DELETE') { delete d.inviteHash; delete d.inviteExp; await env.DB.prepare('UPDATE bands SET data=? WHERE id=?').bind(JSON.stringify(d), band).run(); return json({ ok: true }); }
+      const token = band + '.' + b64u(crypto.getRandomValues(new Uint8Array(18)));
+      d.inviteHash = await sha256(token); d.inviteExp = Date.now() + INVITE_DAYS * 864e5;
+      await env.DB.prepare('UPDATE bands SET data=? WHERE id=?').bind(JSON.stringify(d), band).run();
+      return json({ ok: true, token, exp: d.inviteExp });
+    }
+    const mem = rest.match(/^\/members\/([\w-]+)(\/reset)?$/);
+    if (mem) {
+      const self = me.u === mem[1];
+      if (!manager && !(self && m === 'DELETE' && !mem[2])) return json({ error: 'forbidden' }, 403);
+      const target = await env.DB.prepare('SELECT role FROM members WHERE band=? AND user=?').bind(band, mem[1]).first();
+      if (!target) return json({ error: 'not_found' }, 404);
+      const owners = async () => (await env.DB.prepare("SELECT COUNT(*) n FROM members WHERE band=? AND role='owner'").bind(band).first()).n;
+      if (mem[2] && m === 'POST') {
+        const token = b64u(crypto.getRandomValues(new Uint8Array(24)));
+        await env.DB.prepare('INSERT INTO resets (hash,user,expires) VALUES (?,?,?)').bind(await sha256(token), mem[1], Date.now() + 3 * 864e5).run();
+        return json({ ok: true, token });
+      }
+      if (!mem[2] && m === 'PUT') {
+        const b = await body(req); if (!['owner', 'member'].includes(b.role)) return json({ error: 'invalid' }, 400);
+        if (target.role === 'owner' && b.role !== 'owner' && await owners() < 2) return json({ error: 'last_owner' }, 409);
+        await env.DB.prepare('UPDATE members SET role=? WHERE band=? AND user=?').bind(b.role, band, mem[1]).run();
+        return json({ ok: true });
+      }
+      if (!mem[2] && m === 'DELETE') {
+        if (target.role === 'owner' && await owners() < 2) return json({ error: 'last_owner' }, 409);
+        await env.DB.prepare('DELETE FROM members WHERE band=? AND user=?').bind(band, mem[1]).run();
+        return json({ ok: true });
+      }
+    }
 
     if (rest === '' && m === 'GET') {
       const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
-      const { inboxTokenHash, ...bdata } = parse(row.data);
-      const out = { band: { id: row.id, name: row.name, ...bdata, inboxOn: !!inboxTokenHash }, songs: [], setlists: [], events: [], projects: [] };
+      const { inboxTokenHash, inviteHash, ...bdata } = parse(row.data);
+      const out = { band: { id: row.id, name: row.name, ...bdata, inboxOn: !!inboxTokenHash, myRole: role }, songs: [], setlists: [], events: [], projects: [] };
       for (const r of results) (out[r.kind + 's'] || []).push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
       return json(out);
     }
@@ -289,7 +431,7 @@ async function api(req, env, url, ctx) {
     }
     // ----- backups (admin) -----
     if (rest === '/backups' || rest.startsWith('/backups/')) {
-      if (me.r !== 'admin') return json({ error: 'forbidden' }, 403);
+      if (!manager) return json({ error: 'forbidden' }, 403);
       if (rest === '/backups' && m === 'GET') {
         const { results } = await env.DB.prepare('SELECT id,created,size FROM backups WHERE band=? ORDER BY created DESC').bind(band).all();
         return json({ backups: results });
@@ -367,12 +509,33 @@ async function api(req, env, url, ctx) {
 }
 
 async function bandsFor(env, me) {
-  const q = me.r === 'admin'
-    ? env.DB.prepare('SELECT id,name,data FROM bands ORDER BY created')
-    : env.DB.prepare('SELECT id,name,data FROM bands WHERE id=?').bind(me.b);
-  const { results } = await q.all();
-  return results.map(r => ({ id: r.id, name: r.name, color: parse(r.data).color || '' }));
+  let results;
+  if (me.r === 'admin') ({ results } = await env.DB.prepare('SELECT id,name,data,? role FROM bands ORDER BY created').bind('admin').all());
+  else if (me.u) ({ results } = await env.DB.prepare('SELECT b.id,b.name,b.data,m.role FROM members m JOIN bands b ON b.id=m.band WHERE m.user=? ORDER BY m.created').bind(me.u).all());
+  else ({ results } = await env.DB.prepare("SELECT id,name,data,'band' role FROM bands WHERE id=?").bind(me.b).all());
+  return results.filter(r => me.r !== 'band' || !parse(r.data).legacyOff).map(r => ({ id: r.id, name: r.name, color: parse(r.data).color || '', role: r.role }));
 }
+// what this session may do in a band: 'admin' | 'owner' | 'member' | 'band' (shared band password) | null
+async function bandRole(env, me, band) {
+  if (me.r === 'admin') return 'admin';
+  if (me.u) { const r = await env.DB.prepare('SELECT role FROM members WHERE band=? AND user=?').bind(band, me.u).first(); return r ? r.role : null; }
+  return me.r === 'band' && me.b === band ? 'band' : null;
+}
+async function addMember(env, band, user, role) {
+  await env.DB.prepare('INSERT INTO members (band,user,role,created) VALUES (?,?,?,?) ON CONFLICT(band,user) DO NOTHING').bind(band, user, role, Date.now()).run();
+}
+// invite tokens look like "<bandId>.<random>"; the band keeps only the SHA-256 of the current one
+async function inviteBand(env, token) {
+  const id = String(token || '').split('.')[0];
+  if (!/^[\w-]+$/.test(id)) return null;
+  const row = await env.DB.prepare('SELECT id,name,data FROM bands WHERE id=?').bind(id).first();
+  const d = row && parse(row.data);
+  if (!d || !d.inviteHash || !(d.inviteExp > Date.now()) || !safeEq(await sha256(String(token)), d.inviteHash)) return null;
+  return row;
+}
+const INVITE_DAYS = 14;
+const normEmail = e => String(e || '').trim().toLowerCase().slice(0, 200);
+const okUserPw = s => typeof s === 'string' && s.length >= 8 && s.length <= 200;
 
 async function pwInUse(env, pw, exceptBand) {
   const admin = await kvGet(env, 'admin');
@@ -386,7 +549,7 @@ async function pwInUse(env, pw, exceptBand) {
 // same shape as the app's "Export backup", so "Import backup" restores it
 async function snapshot(env, band) {
   const row = await env.DB.prepare('SELECT id,name,data FROM bands WHERE id=?').bind(band).first();
-  const { inboxTokenHash, ...bdata } = parse(row && row.data);
+  const { inboxTokenHash, inviteHash, inviteExp, ...bdata } = parse(row && row.data);
   const out = { band: row ? row.name : '', bandInfo: bdata, exported: new Date().toISOString(), songs: [], setlists: [], events: [], projects: [] };
   const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
   for (const r of results) (out[r.kind + 's'] || []).push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
@@ -600,6 +763,11 @@ async function readSession(req, env) {
     if (!ok) return null;
     const s = JSON.parse(new TextDecoder().decode(unb64u(c[1])));
     if (!s.e || s.e < Date.now()) return null;
+    if (s.u) {
+      const u = await env.DB.prepare('SELECT name,email,admin FROM users WHERE id=?').bind(s.u).first();
+      if (!u) return null;
+      return { ...s, r: u.admin ? 'admin' : 'user', n: u.name || '', email: u.email };
+    }
     if (s.r === 'admin' && !(await kvGet(env, 'admin'))) return null;
     return s;
   } catch { return null; }

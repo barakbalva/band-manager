@@ -25,9 +25,15 @@ Tables are created automatically (`kv`, `bands`, `items`, `live`). Songs/setlist
 - setlist: `name, date, time, venue, entries: [{s: songId} | {b: 1}]` (b = set break)
 Chords are always stored in the ORIGINAL key; the app transposes on display with `shift`.
 
-## Auth
-Admin password (Barak only) + one password per band; signed cookie session. The admin can also replace the frontend at runtime (`PUT /api/admin/app`), but with wrangler deploy that is no longer needed.
-
+## Auth (personal accounts since 2026-11-26)
+- Live at **https://app.bandtwerp.com** (Custom Domain on the Worker, zone bandtwerp.com — note the t: Band + Antwerp) and still at bands.barakbalva.workers.dev. Cookies are per host.
+- Tables `users` (email unique, PBKDF2 pw, `admin` = platform admin), `members` (band, user, role owner|member), `resets` (SHA-256 of one-time reset token, 3 days).
+- Login: email + password (`POST /api/login {email,password}`), session `{r:'user', u}`; `readSession` loads the user each request (name, email, admin → `me.r='admin'`).
+- Sign-up `POST /api/signup`: with an invite token (joins as member) or, when admin switched "open sign-up" on (kv `signup_open`), with a new band name (becomes owner). `POST /api/bands` = signed-in user starts another band.
+- Invite link: `/#invite=<bandId>.<random>`; band keeps `inviteHash` + `inviteExp` (14 days) in `bands.data`; a new link replaces the old. Owners: `/api/band/:id/invite` (POST/DELETE), `/members` (GET), `/members/:uid` (PUT role, DELETE), `/members/:uid/reset` (POST → `/#reset=<token>` link; no email sending yet).
+- Band owners may also use `PUT /api/admin/band/:id` (name, calendarId, shared password, `legacyOff`) and `POST /api/admin/band/:id/inbox-token`; backups too.
+- Legacy (still works until switched off): admin password (kv `admin`) and one shared password per band. `bands.data.legacyOff` blocks the band password and its sessions. Settings → "Make your personal account" (`POST /api/account/claim`, legacy admin only, once): creates the platform-admin user, owner of all bands.
+- Not done yet (step 3): password-reset emails, landing page, privacy policy/terms, payments. PBKDF2 is only 5000 iterations (Workers Free CPU limit) — raise on a paid plan.
 ## Google Calendar (two-way)
 - Calendar tab reads/writes the band's own Google Calendar through `/api/band/:id/cal` (GET list, POST, PUT/:eid, DELETE/:eid). Events are NOT stored in D1.
 - Auth: a Google service account. Its JSON key is the Worker secret `GOOGLE_SA_KEY` (`npx wrangler secret put GOOGLE_SA_KEY < key.json`, Barak runs it). The band calendar is shared with the service account email ("Make changes to events").
@@ -62,4 +68,4 @@ Social media / video projects. Stored in `items` as kind `project`:
 
 ## Ideas Barak has mentioned
 - Brainstorm songs: section chords filled 2026-11-26 (7 of 8; "In de maneschijn" is Barak's own arrangement, left as is). Verify by ear when they start learning them.
-- Custom domain for the band later
+- Plan: bandtwerp.com = blog about band gigs/projects; app.bandtwerp.com = BandBase for any band (free first, paid later).

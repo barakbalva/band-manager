@@ -18,7 +18,7 @@ async def main():
       f='.sheet #sf '
       await pg.fill(f+'[name=title]',t); await pg.fill(f+'[name=artist]',ar); await pg.fill(f+'[name=key]',k); await pg.fill(f+'[name=bpm]',bpm); await pg.fill(f+'[name=duration]',d); await pg.fill(f+'[name=tuning]',tu)
       if t=='Zombie':
-        await pg.fill(f+'[name=notes]','Intro: drums alone 4 bars\nMieke starts acapella')
+        await pg.fill(f+'[name=notes]','Intro: drums alone 4 bars\nSinger starts acapella')
         await pg.fill(f+'[name=chords]','[Verse]\nEm        C\nAnother head hangs lowly\nG          D/F#\nChild is slowly taken\n\n[Chorus]\nEm   C   G   D')
         await pg.fill(f+'[name=midi]','12')
       await pg.click(f+'button.btn.primary'); await pg.wait_for_selector('.sheet',state='detached')
@@ -45,8 +45,8 @@ async def main():
     # member login in second context
     m=await b.new_context(viewport={'width':390,'height':844},device_scale_factor=2,locale='nl-BE')
     mp=await m.new_page(); mp.on('pageerror',lambda e:errs.append('M:'+str(e)))
-    await mp.goto(U); await mp.wait_for_selector('#lf'); await mp.fill('#pw','wrong'); await mp.click('#lf button'); await mp.wait_for_selector('.err:not(:empty)')
-    await mp.fill('#pw','ctrlv2026'); await mp.fill('#nm','Mieke'); await mp.click('#lf button'); await mp.wait_for_selector('nav.tabs')
+    await mp.goto(U); await mp.click('#tolegacy'); await mp.wait_for_selector('#lf'); await mp.fill('#pw','wrong'); await mp.click('#lf button'); await mp.wait_for_selector('.err:not(:empty)')
+    await mp.fill('#pw','ctrlv2026'); await mp.fill('#nm','Singer'); await mp.click('#lf button'); await mp.wait_for_selector('nav.tabs')
     n=await mp.eval_on_selector_all('#sl li','e=>e.length'); print('member sees songs',n)
     await mp.click('nav.tabs button[data-t=setlists]'); await mp.click('#ll li'); await mp.click('#stg'); await mp.wait_for_selector('#stage'); await mp.wait_for_timeout(800)
     print('member follow pill', await mp.get_attribute('#sfollow','class'))
@@ -64,7 +64,7 @@ async def main():
     st=await pg.evaluate("fetch('/api/state').then(r=>r.json())"); print('custom after revert',st['custom'])
     # desktop english
     d=await b.new_context(viewport={'width':1280,'height':800},locale='en-US'); dp=await d.new_page()
-    await dp.goto(U); await dp.fill('#pw','admin123'); await dp.click('#lf button'); await dp.wait_for_selector('nav.tabs'); await dp.screenshot(path='/home/claude/test/09-desktop.png')
+    await dp.goto(U); await dp.click('#tolegacy'); await dp.fill('#pw','admin123'); await dp.click('#lf button'); await dp.wait_for_selector('nav.tabs'); await dp.screenshot(path='/home/claude/test/09-desktop.png')
     await dp.click('nav.tabs button[data-t=songs]'); await dp.click('#sl li:has-text("Zombie")'); await dp.wait_for_timeout(300); await dp.screenshot(path='/home/claude/test/10-edit.png')
     print('errors',errs)
     await b.close()
