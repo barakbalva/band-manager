@@ -44,7 +44,7 @@ Admin password (Barak only) + one password per band; signed cookie session. The 
 - Live setup (done 2026-11-24, working): the script runs in ctrlvpartyband@gmail.com for band Ctrl-V.
 
 ## Backups
-- Cron (`wrangler.toml` [triggers], Monday 03:00 UTC) → `scheduled()` stores a snapshot of every band in table `backups` (last 12 per band). Same shape as "Export backup", so "Import backup" restores it. Admin: Settings → Backups (list, download, "Back up now").
+- Cron (`wrangler.toml` [triggers], Monday 03:00 UTC; the daily 06:00 cron is only for project reminders) → `scheduled()` stores a snapshot of every band in table `backups` (last 12 per band). Same shape as "Export backup", so "Import backup" restores it. Admin: Settings → Backups (list, download, "Back up now").
 - Off-site copy: the Gmail Apps Script also runs `backupToDrive` weekly → `GET /api/inbox/:band/backup` (inbox token) → Drive folder "BandBase backups" (last 12). Scripts made before 2026-11-24 only sync mail. Ctrl-V's script got `setupBackup` + `backupToDrive` appended by hand (same token) on 2026-11-24 and works: triggers syncInbox (5 min) + backupToDrive (Mon 05:00).
 
 ## Availability, gig details, notifications, song extras
@@ -53,10 +53,13 @@ Admin password (Barak only) + one password per band; signed cookie session. The 
 - Web Push without any library (VAPID ES256 + RFC 8291 aes128gcm in `sendPush`); VAPID keys auto-made in kv `vapid`. Subscriptions in table `push` (with language). Sent on: event created/changed in the app, new mail ingested, setlist saved (max once per 30 min per setlist). Not for events made directly in Google. iPhone needs the home-screen app.
 - Songs: `practice` flag (chip + filter), YouTube search button, metronome click (Web Audio `Click`) in the editor and a "Click" pill in stage mode.
 
-## Next: "Projects" tab (planned 2026-11-24, not built yet; waiting for the band's project lead to confirm)
-Social media / video projects (Christmas video, promo video, posts). Per project: name, type (video/post/photo/other), deadline, owner, status (idea → in progress → editing → published), links (Drive, drafts, published post), notes; a task checklist inside (task, owner, date). Views: due this week, overdue in red. Hooks into what exists: deadline in the band calendar, push before a deadline, optional link to a song or gig.
+## Projects tab (built 2026-11-26)
+Social media / video projects. Stored in `items` as kind `project`:
+`name, type (video|post|photo|other), status (idea|progress|editing|published), deadline (YYYY-MM-DD), owner, tasks: [{text, owner, date, done}], linkDrive, linkDraft, linkPub, songId, gigId (+gigTitle, gigDate cached), notes, inCal, calEventId`.
+- Filters: active / this week (incl. overdue) / overdue (red) / published.
+- "Put the deadline in the band calendar" keeps one all-day event (`🎬 name`, type other) in Google Calendar; id in `calEventId`; removed when unticked or the project is deleted.
+- Push: new project (from the app); daily cron `0 6 * * *` → `remindDeadlines()` pushes for project deadlines and undone tasks due today/tomorrow (Europe/Brussels), once each (kv `due:...`).
 
 ## Ideas Barak has mentioned
-- Member availability for gigs/rehearsals
 - Fill chords for the 8 "parked" brainstorm songs when they start learning them
 - Custom domain for the band later

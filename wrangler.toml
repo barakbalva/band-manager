@@ -10,5 +10,5 @@ database_name = "bands"
 database_id = "59f089b0-a00e-43d6-b66b-29de9bc6da90"
 
 [triggers]
-# weekly backup of every band, Monday 03:00 UTC
-crons = ["0 3 * * 1"]
+# Monday 03:00 UTC: weekly backup of every band · daily 06:00 UTC: project deadline reminders
+crons = ["0 3 * * 1", "0 6 * * *"]

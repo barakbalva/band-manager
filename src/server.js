@@ -22,7 +22,7 @@ const SCHEMA = [
 ];
 const BACKUPS_KEPT = 12;
 let schemaReady = false;
-const KINDS = new Set(['song', 'setlist', 'event']);
+const KINDS = new Set(['song', 'setlist', 'event', 'project']);
 const SESSION_DAYS = 180;
 
 export default {
@@ -46,10 +46,12 @@ export default {
     }
   },
   // weekly backup of every band (cron in wrangler.toml)
+  // weekly backup (Monday cron) + daily project deadline reminders (daily cron)
   async scheduled(event, env, ctx) {
     await ensureSchema(env);
     const { results } = await env.DB.prepare('SELECT id FROM bands').all();
-    for (const r of results) await storeBackup(env, r.id);
+    if (!event || !event.cron || event.cron === '0 3 * * 1') for (const r of results) await storeBackup(env, r.id);
+    if (!event || !event.cron || event.cron === DAILY_CRON) for (const r of results) await remindDeadlines(env, r.id);
   },
 };
 async function ensureSchema(env) { if (!schemaReady) { await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s))); schemaReady = true; } }
@@ -206,8 +208,8 @@ async function api(req, env, url, ctx) {
     if (rest === '' && m === 'GET') {
       const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
       const { inboxTokenHash, ...bdata } = parse(row.data);
-      const out = { band: { id: row.id, name: row.name, ...bdata, inboxOn: !!inboxTokenHash }, songs: [], setlists: [], events: [] };
-      for (const r of results) out[r.kind + 's'].push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
+      const out = { band: { id: row.id, name: row.name, ...bdata, inboxOn: !!inboxTokenHash }, songs: [], setlists: [], events: [], projects: [] };
+      for (const r of results) (out[r.kind + 's'] || []).push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
       return json(out);
     }
     if (rest === '/settings' && m === 'PUT') {
@@ -229,6 +231,7 @@ async function api(req, env, url, ctx) {
       const now = Date.now();
       await env.DB.prepare('INSERT INTO items (id,band,kind,data,updated,by) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated=excluded.updated, by=excluded.by')
         .bind(id, band, b.kind, data, now, me.n || '').run();
+      if (b.kind === 'project' && !b.id) later(notify(env, band, { kind: 'project', name: String(b.data.name || ''), by: me.n || '', tab: 'projects' }, me.n));
       // a setlist is saved on every edit: tell the band at most once per 30 minutes per setlist
       if (b.kind === 'setlist') later((async () => {
         const k = 'pushsl:' + id, last = +(await kvGet(env, k) || 0);
@@ -350,7 +353,7 @@ async function api(req, env, url, ctx) {
     if (rest === '/import' && m === 'POST') {
       const b = await body(req);
       const stmts = [];
-      for (const kind of ['song', 'setlist', 'event']) for (const it of (b[kind + 's'] || [])) {
+      for (const kind of ['song', 'setlist', 'event', 'project']) for (const it of (b[kind + 's'] || [])) {
         if (!it || typeof it !== 'object') continue;
         const { id, updated, by, ...data } = it;
         stmts.push(env.DB.prepare('INSERT INTO items (id,band,kind,data,updated,by) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated=excluded.updated WHERE items.band=excluded.band')
@@ -384,7 +387,7 @@ async function pwInUse(env, pw, exceptBand) {
 async function snapshot(env, band) {
   const row = await env.DB.prepare('SELECT id,name,data FROM bands WHERE id=?').bind(band).first();
   const { inboxTokenHash, ...bdata } = parse(row && row.data);
-  const out = { band: row ? row.name : '', bandInfo: bdata, exported: new Date().toISOString(), songs: [], setlists: [], events: [] };
+  const out = { band: row ? row.name : '', bandInfo: bdata, exported: new Date().toISOString(), songs: [], setlists: [], events: [], projects: [] };
   const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
   for (const r of results) (out[r.kind + 's'] || []).push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
   return out;
@@ -398,15 +401,17 @@ async function storeBackup(env, band) {
 
 // ---------- push notifications (Web Push: VAPID + aes128gcm, RFC 8291/8292) ----------
 const PUSH_TEXT = {
-  en: { test: 'Notifications are on.', mail: n => n > 1 ? `${n} new emails` : 'New email', setlist: 'Setlist updated', evNew: { rehearsal: 'New rehearsal', gig: 'New gig', other: 'New event' }, evChanged: 'Event changed', by: 'by' },
-  nl: { test: 'Meldingen staan aan.', mail: n => n > 1 ? `${n} nieuwe mails` : 'Nieuwe mail', setlist: 'Setlist bijgewerkt', evNew: { rehearsal: 'Nieuwe repetitie', gig: 'Nieuw optreden', other: 'Nieuwe afspraak' }, evChanged: 'Afspraak gewijzigd', by: 'door' },
-  he: { test: 'ההתראות פועלות.', mail: n => n > 1 ? `${n} מיילים חדשים` : 'מייל חדש', setlist: 'הסט־ליסט עודכן', evNew: { rehearsal: 'חזרה חדשה', gig: 'הופעה חדשה', other: 'אירוע חדש' }, evChanged: 'אירוע השתנה', by: 'ע״י' },
+  en: { project: 'New project', dueToday: 'Deadline today', dueTomorrow: 'Deadline tomorrow', taskToday: 'Task due today', taskTomorrow: 'Task due tomorrow', test: 'Notifications are on.', mail: n => n > 1 ? `${n} new emails` : 'New email', setlist: 'Setlist updated', evNew: { rehearsal: 'New rehearsal', gig: 'New gig', other: 'New event' }, evChanged: 'Event changed', by: 'by' },
+  nl: { project: 'Nieuw project', dueToday: 'Deadline vandaag', dueTomorrow: 'Deadline morgen', taskToday: 'Taak voor vandaag', taskTomorrow: 'Taak voor morgen', test: 'Meldingen staan aan.', mail: n => n > 1 ? `${n} nieuwe mails` : 'Nieuwe mail', setlist: 'Setlist bijgewerkt', evNew: { rehearsal: 'Nieuwe repetitie', gig: 'Nieuw optreden', other: 'Nieuwe afspraak' }, evChanged: 'Afspraak gewijzigd', by: 'door' },
+  he: { project: 'פרויקט חדש', dueToday: 'דדליין היום', dueTomorrow: 'דדליין מחר', taskToday: 'משימה להיום', taskTomorrow: 'משימה למחר', test: 'ההתראות פועלות.', mail: n => n > 1 ? `${n} מיילים חדשים` : 'מייל חדש', setlist: 'הסט־ליסט עודכן', evNew: { rehearsal: 'חזרה חדשה', gig: 'הופעה חדשה', other: 'אירוע חדש' }, evChanged: 'אירוע השתנה', by: 'ע״י' },
 };
 function pushMessage(lang, x) {
   const L = PUSH_TEXT[lang] || PUSH_TEXT.en;
   const by = x.by ? ` (${L.by} ${x.by})` : '';
   if (x.kind === 'mail') return { title: L.mail(x.n), body: [x.from && String(x.from).replace(/\s*<[^>]*>/, ''), x.subject].filter(Boolean).join(': ') };
   if (x.kind === 'setlist') return { title: L.setlist, body: x.name + by };
+  if (x.kind === 'project') return { title: L.project, body: x.name + by };
+  if (x.kind === 'due') return { title: L[(x.task ? 'task' : 'due') + (x.today ? 'Today' : 'Tomorrow')], body: x.task ? `${x.task}${x.owner ? ' (' + x.owner + ')' : ''} · ${x.name}` : x.name + (x.owner ? ` (${x.owner})` : '') };
   const d = x.date ? new Date(x.date + 'T12:00').toLocaleDateString(lang === 'he' ? 'he-IL' : lang, { weekday: 'short', day: 'numeric', month: 'short' }) : '';
   return { title: x.kind === 'evNew' ? (L.evNew[x.type] || L.evNew.other) : L.evChanged, body: `${x.title} · ${d}${x.start ? ' ' + x.start : ''}${by}` };
 }
@@ -415,6 +420,22 @@ async function notify(env, band, x, exceptMember) {
   const { results } = await env.DB.prepare('SELECT endpoint,member,lang,keys FROM push WHERE band=?').bind(band).all();
   await Promise.all(results.filter(r => !exceptMember || r.member !== exceptMember).map(r =>
     sendPush(env, { endpoint: r.endpoint, keys: parse(r.keys) }, { ...pushMessage(r.lang, x), tab: x.tab })));
+}
+// ---------- project deadline reminders (daily cron) ----------
+const DAILY_CRON = '0 6 * * *';
+const DONE_STATUS = new Set(['published']);
+function dayIn(tz, plus = 0) { return new Date(Date.now() + plus * 864e5).toLocaleDateString('sv-SE', { timeZone: tz }); }
+async function remindDeadlines(env, band) {
+  const today = dayIn('Europe/Brussels'), tomorrow = dayIn('Europe/Brussels', 1);
+  const { results } = await env.DB.prepare("SELECT id,data FROM items WHERE band=? AND kind='project'").bind(band).all();
+  for (const r of results) {
+    const pj = parse(r.data); if (DONE_STATUS.has(pj.status)) continue;
+    const hits = [];
+    if (pj.deadline === today || pj.deadline === tomorrow) hits.push({ key: `due:${r.id}:${pj.deadline}:${pj.deadline === today}`, x: { kind: 'due', name: pj.name || '', owner: pj.owner || '', today: pj.deadline === today } });
+    (pj.tasks || []).forEach((tk, i) => { if (!tk.done && (tk.date === today || tk.date === tomorrow))
+      hits.push({ key: `due:${r.id}:t${i}:${tk.date}:${tk.date === today}`, x: { kind: 'due', name: pj.name || '', task: String(tk.text || ''), owner: tk.owner || '', today: tk.date === today } }); });
+    for (const h of hits) { if (await kvGet(env, h.key)) continue; await kvSet(env, h.key, '1'); await notify(env, band, { ...h.x, tab: 'projects' }); }
+  }
 }
 async function vapid(env) {
   let v = parse(await kvGet(env, 'vapid'));
