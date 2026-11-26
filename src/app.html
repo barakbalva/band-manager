@@ -13,9 +13,12 @@
 <style>
 :root{--bg:#111114;--panel:#1b1b20;--panel2:#24242b;--line:#33333c;--text:#ececf1;--muted:#9a9aa6;--accent:#f5a524;--accent-ink:#1a1200;--danger:#ef5b5b;--ok:#3ecf8e;--r:12px;--safe-b:env(safe-area-inset-bottom,0px)}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Hebrew",sans-serif;overscroll-behavior:none}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Hebrew",sans-serif}
+html{overscroll-behavior-y:none}
 /* nothing may be wider than the screen: on an iPhone that lets the whole view slide, pushing sheet headers under the status bar */
-html,body{overflow-x:hidden}
+/* clip, not hidden: overflow-x:hidden on html+body turns body into its own scroll box, and Android Chrome then scrolls badly */
+html,body{overflow-x:clip}
+@supports not (overflow-x:clip){body{overflow-x:hidden}}
 .grid2>*,.grid3>*{min-width:0}
 input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-width:0;min-height:44px;display:block}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -107,7 +110,7 @@ nav.tabs button span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;m
 .sheet{background:var(--bg);border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;width:100%;max-width:720px;max-height:100%;display:flex;flex-direction:column}
 .sheet-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .sheet-h h2{font-size:17px;margin:0;flex:1}
-.sheet-b{overflow:auto;padding:14px;padding-bottom:calc(20px + var(--safe-b))}
+.sheet-b{overflow:auto;flex:1 1 auto;min-height:0;overscroll-behavior:contain;padding:14px;padding-bottom:calc(20px + var(--safe-b))}
 @media (min-width:760px){.sheet-bg{align-items:center}.sheet{border-radius:18px;border-bottom:1px solid var(--line)}}
 
 /* login */
@@ -124,7 +127,7 @@ nav.tabs button span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;m
 .st-pill{padding:4px 9px;border-radius:20px;border:1px solid #333;font-size:13px;color:#bbb}
 .st-pill.on{border-color:var(--accent);color:var(--accent)}
 .st-pill.live{border-color:var(--ok);color:var(--ok)}
-.st-main{flex:1;overflow:auto;padding:14px 18px 20px}
+.st-main{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:14px 18px 20px}
 .st-pos{color:#888;font-size:15px;font-variant-numeric:tabular-nums}
 .st-title{font-size:clamp(30px,7vw,64px);font-weight:800;line-height:1.1;margin:4px 0 6px}
 .st-artist{color:#999;font-size:clamp(16px,3vw,24px);margin-bottom:10px}
