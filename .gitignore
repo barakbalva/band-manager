@@ -1,2 +1,5 @@
 node_modules/
 .wrangler/
+.DS_Store
+*.key.json
+key.json

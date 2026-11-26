@@ -8,3 +8,7 @@ binding = "DB"
 database_name = "bands"
 # verify with: npx wrangler d1 list
 database_id = "59f089b0-a00e-43d6-b66b-29de9bc6da90"
+
+[triggers]
+# weekly backup of every band, Monday 03:00 UTC
+crons = ["0 3 * * 1"]

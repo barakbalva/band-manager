@@ -7,13 +7,17 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icon.svg">
-<link rel="apple-touch-icon" href="/icon.svg">
-<title>Band Manager</title>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<title>BandBase</title>
 <style>
 :root{--bg:#111114;--panel:#1b1b20;--panel2:#24242b;--line:#33333c;--text:#ececf1;--muted:#9a9aa6;--accent:#f5a524;--accent-ink:#1a1200;--danger:#ef5b5b;--ok:#3ecf8e;--r:12px;--safe-b:env(safe-area-inset-bottom,0px)}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Hebrew",sans-serif}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Hebrew",sans-serif;overscroll-behavior:none}
+/* nothing may be wider than the screen: on an iPhone that lets the whole view slide, pushing sheet headers under the status bar */
+html,body{overflow-x:hidden}
+.grid2>*,.grid3>*{min-width:0}
+input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-width:0;min-height:44px;display:block}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none}
 a{color:var(--accent)}
@@ -38,6 +42,7 @@ nav.tabs button.on{color:var(--accent)}
 /* controls */
 .btn{white-space:nowrap;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-weight:600;display:inline-flex;align-items:center;gap:6px;justify-content:center}
 .btn svg{width:20px;height:20px;flex:none}
+a.btn{text-decoration:none;color:inherit}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .btn.danger{color:var(--danger)}
 .btn.sm{padding:6px 10px;font-size:14px}
@@ -69,6 +74,14 @@ label.f>span{display:block;font-size:13px;color:var(--muted);margin:0 0 5px}
 .chip.k{color:var(--accent)}
 .chip.learn{color:#7cc4ff}
 .chip.park{color:var(--muted);text-decoration:line-through}
+.evd{width:42px;flex:none;text-align:center}.evd b{display:block;font-size:20px;line-height:1.1}.evd span{font-size:12px;color:var(--muted)}
+.mail-li.unread .title{font-weight:800}.mail-li.unread .evd b{color:var(--accent)}
+.mail-body{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;font-size:15px}
+.mail-meta{font-size:13px;color:var(--muted);margin:0 0 10px;word-break:break-word}
+.calbox textarea.script{width:100%;min-height:160px;font:12px/1.35 ui-monospace,Menlo,monospace;direction:ltr;text-align:left}
+.chip.t-gig{color:var(--accent)}.chip.t-rehearsal{color:#7cc4ff}
+.calbox{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.calbox code{display:block;direction:ltr;text-align:left;word-break:break-all;background:var(--panel2);padding:8px;border-radius:8px;margin:6px 0;font-size:13px}
 .empty{text-align:center;color:var(--muted);padding:40px 16px}
 .count{font-size:13px;color:var(--muted);margin:14px 2px 6px;display:flex;justify-content:space-between}
 
@@ -83,8 +96,10 @@ label.f>span{display:block;font-size:13px;color:var(--muted);margin:0 0 5px}
 .dur{direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums;color:var(--muted);font-size:14px;flex:none}
 
 /* sheet (modal) */
-.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:flex;align-items:flex-end;justify-content:center}
-.sheet{background:var(--bg);border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;width:100%;max-width:720px;max-height:94vh;display:flex;flex-direction:column}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:flex;align-items:flex-end;justify-content:center;
+ /* keep the sheet's top row (close, stage mode…) below the status bar / notch in the installed app */
+ padding-top:max(6vh,calc(env(safe-area-inset-top,0px) + 10px))}
+.sheet{background:var(--bg);border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;width:100%;max-width:720px;max-height:100%;display:flex;flex-direction:column}
 .sheet-h{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
 .sheet-h h2{font-size:17px;margin:0;flex:1}
 .sheet-b{overflow:auto;padding:14px;padding-bottom:calc(20px + var(--safe-b))}
@@ -99,7 +114,7 @@ label.f>span{display:block;font-size:13px;color:var(--muted);margin:0 0 5px}
 
 /* stage mode */
 #stage{position:fixed;inset:0;z-index:40;background:#000;color:#fff;display:flex;flex-direction:column}
-.st-top{display:flex;align-items:center;gap:6px;padding:calc(env(safe-area-inset-top,0px) + 6px) 8px 6px;color:#aaa;font-size:14px;border-bottom:1px solid #222}
+.st-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:calc(env(safe-area-inset-top,0px) + 6px) 8px 6px;color:#aaa;font-size:14px;border-bottom:1px solid #222}
 .st-top .icon{color:#ccc;width:38px;height:38px}
 .st-pill{padding:4px 9px;border-radius:20px;border:1px solid #333;font-size:13px;color:#bbb}
 .st-pill.on{border-color:var(--accent);color:var(--accent)}
@@ -165,7 +180,7 @@ label.f>span{display:block;font-size:13px;color:var(--muted);margin:0 0 5px}
 'use strict';
 // ---------- i18n ----------
 const T = {
- en:{appName:'Band Manager',songs:'Songs',setlists:'Setlists',settings:'Settings',password:'Password',yourName:'Your name (optional)',login:'Log in',logout:'Log out',wrong:'Wrong password',
+ en:{appName:'BandBase',songs:'Songs',setlists:'Setlists',settings:'Settings',password:'Password',yourName:'Your name (optional)',login:'Log in',logout:'Log out',wrong:'Wrong password',
   setupTitle:'First-time setup',setupText:'Choose an admin password (only for you) and create the first band with its own password for the members.',adminPw:'Admin password (only you)',bandName:'Band name',bandPw:'Band password (for members)',create:'Create',samePw:'Use two different passwords',minPw:'At least 4 characters',
   search:'Search',addSong:'Add song',newSong:'New song',editSong:'Edit song',title:'Title',artist:'Original artist',key:'Key',bpm:'BPM',duration:'Duration (m:ss)',tuning:'Tuning',status:'Status',active:'Active',learning:'Learning',parked:'Parked',
   notes:'Notes (shown big on stage)',chords:'Lyrics / chords',link:'Link (YouTube, Drive…)',midi:'MIDI program (0–127)',midiCh:'MIDI channel',save:'Save',cancel:'Cancel',del:'Delete',confirmDel:'Delete this? This cannot be undone.',
@@ -175,8 +190,8 @@ const T = {
   midiOn:'MIDI',midiNone:'No MIDI device found',midiNo:'This browser has no MIDI (use Chrome on a computer or Android)',
   language:'Language',me:'Me',bands:'Bands',addBand:'Add band',changePw:'Change password',newPw:'New password',adminPwChange:'Change admin password',pwInUse:'That password is already used',saved:'Saved',
   version:'Version',appUpdate:'App updates',customApp:'Updated version active',builtinApp:'Built-in version',revert:'Back to built-in',offline:'Offline — showing saved data',export:'Export backup',import:'Import backup',imported:'Imported',
-  sortTitle:'A–Z',sortRecent:'Recent',sortStatus:'Status',error:'Something went wrong',followingX:'Following',leadingX:'You are leading',color:'Color',members:'Members',editedBy:'edited by',origKey:'Original key',playKey:'Played key (transpose)',resetKey:'Back to original',parts:'Song parts & chords (in the original key)',partsHelp:'Type the chords in the original key. When you transpose, they change with it.',chordsHelp:'Write chords in the original key. On stage, chord lines are shown transposed; lyrics stay as they are.',p_intro:'Intro',p_verse:'Verse',p_prechorus:'Pre-chorus',p_chorus:'Chorus',p_bridge:'Bridge',p_solo:'Solo',p_outro:'Outro'},
- nl:{appName:'Band Manager',songs:'Nummers',setlists:'Setlists',settings:'Instellingen',password:'Wachtwoord',yourName:'Je naam (optioneel)',login:'Inloggen',logout:'Uitloggen',wrong:'Fout wachtwoord',
+  sortTitle:'A–Z',sortRecent:'Recent',sortStatus:'Status',error:'Something went wrong',followingX:'Following',leadingX:'You are leading',color:'Color',members:'Members',editedBy:'edited by',origKey:'Original key',playKey:'Played key (transpose)',resetKey:'Back to original',parts:'Song parts & chords (in the original key)',partsHelp:'Type the chords in the original key. When you transpose, they change with it.',findLyrics:'Find lyrics',chordsHelp:'Write chords in the original key. On stage, chord lines are shown transposed; lyrics stay as they are.',p_intro:'Intro',p_verse:'Verse',p_prechorus:'Pre-chorus',p_chorus:'Chorus',p_bridge:'Bridge',p_solo:'Solo',p_outro:'Outro',calendar:'Calendar',newEvent:'New event',editEvent:'Edit event',ev_rehearsal:'Rehearsal',ev_gig:'Gig',ev_other:'Other',allDay:'All day',startT:'Start',endT:'End',location:'Location',evNotes:'Details',upcoming:'Upcoming',past:'Past',noEvents:'Nothing in the calendar yet.',openGoogle:'Open in Google Calendar',loading:'Loading…',calNotSet:'The band calendar is not connected yet. Barak can connect it.',calSetupTitle:'Connect the band’s Google Calendar',calStep1:'In Google Calendar, open the band calendar’s settings → “Share with specific people” → add this address with “Make changes to events”:',calStep2:'In the same settings, under “Integrate calendar”, copy the Calendar ID and paste it here:',calId:'Calendar ID',calKeyMissing:'The Google key is not installed on the server yet (GOOGLE_SA_KEY). Finish the Google Cloud step first.',calNoAccess:'Google refused access. Check that the calendar is shared with this address with “Make changes to events”:',copied:'Copied',setlistFor:'Setlist for this gig',recurringNote:'Repeating event: only this date is changed.',calBtn:'Google Calendar',retry:'Try again',membersLbl:'Band members (one name per line)',membersHelp:'Used to show who still has to answer for a rehearsal or gig. Write the names as people fill them in at login.',notifs:'Notifications',notifOn:'Turn on notifications',notifOff:'Turn off',notifOnTxt:'On for this device: new rehearsals and gigs, new mail, setlist changes.',notifNo:'This device can’t receive notifications here. On iPhone: add the app to the home screen first and open it from there.',notifDenied:'Notifications are blocked for this app in the settings of this device.',backups:'Backups',backupsHelp:'Every Monday a backup is made automatically; the last 12 are kept. To restore one: download it, then “Import backup”.',backupNow:'Back up now',noBackups:'No backups yet.',avail:'Who can make it?',a_yes:'Yes',a_no:'No',a_maybe:'Maybe',notAnswered:'No answer yet',needName:'Fill in your name first (Settings → Your name).',gigDetails:'Gig details',arrive:'Arrival',soundcheck:'Soundcheck',contact:'Contact on site',fee:'Fee',bring:'Bring along',toEvent:'Add to calendar',practice:'Needs practice',practiceF:'Practice',findOrig:'Find on YouTube',metro:'Metronome',click:'Click',mailBackupNote:'The script also keeps a weekly backup in this Gmail’s Google Drive (folder “BandBase backups”).',inbox:'Mail',noMail:'No mail yet.',mailNotSet:'The band mailbox is not connected yet. Barak can connect it.',mailSetupTitle:'Connect the band’s Gmail',mailStep1:'Log in to the band’s Gmail account, open script.google.com and click “New project”.',mailStep2:'Delete what is there and paste this script:',mailStep3:'Save, choose the function “setup” at the top and click Run. Google asks for permission: allow it (Advanced → Go to project, if it warns).',mailStep4:'Done. New mail shows up here within 5 minutes.',mailGen:'Create connection script',mailRegen:'New connection script',mailRegenWarn:'The old script stops working. Continue?',copyScript:'Copy script',from:'From',to:'To',reply:'Reply',openGmail:'Open in Gmail',attachments:'Attachments',hide:'Remove from app',mailHelp:'Mail arriving at the band’s Gmail. Reply from your own mail or in Gmail.'},
+ nl:{appName:'BandBase',songs:'Nummers',setlists:'Setlists',settings:'Instellingen',password:'Wachtwoord',yourName:'Je naam (optioneel)',login:'Inloggen',logout:'Uitloggen',wrong:'Fout wachtwoord',
   setupTitle:'Eerste installatie',setupText:'Kies een beheerderswachtwoord (alleen voor jou) en maak de eerste band aan met een eigen wachtwoord voor de leden.',adminPw:'Beheerderswachtwoord (alleen jij)',bandName:'Bandnaam',bandPw:'Bandwachtwoord (voor leden)',create:'Aanmaken',samePw:'Gebruik twee verschillende wachtwoorden',minPw:'Minstens 4 tekens',
   search:'Zoeken',addSong:'Nummer toevoegen',newSong:'Nieuw nummer',editSong:'Nummer bewerken',title:'Titel',artist:'Originele artiest',key:'Toonaard',bpm:'BPM',duration:'Duur (m:ss)',tuning:'Stemming',status:'Status',active:'Actief',learning:'Aan het leren',parked:'Geparkeerd',
   notes:'Notities (groot op het podium)',chords:'Tekst / akkoorden',link:'Link (YouTube, Drive…)',midi:'MIDI-programma (0–127)',midiCh:'MIDI-kanaal',save:'Opslaan',cancel:'Annuleren',del:'Verwijderen',confirmDel:'Dit verwijderen? Dit kan niet ongedaan worden.',
@@ -186,8 +201,8 @@ const T = {
   midiOn:'MIDI',midiNone:'Geen MIDI-apparaat gevonden',midiNo:'Deze browser heeft geen MIDI (gebruik Chrome op computer of Android)',
   language:'Taal',me:'Ik',bands:'Bands',addBand:'Band toevoegen',changePw:'Wachtwoord wijzigen',newPw:'Nieuw wachtwoord',adminPwChange:'Beheerderswachtwoord wijzigen',pwInUse:'Dat wachtwoord is al in gebruik',saved:'Opgeslagen',
   version:'Versie',appUpdate:'App-updates',customApp:'Bijgewerkte versie actief',builtinApp:'Ingebouwde versie',revert:'Terug naar ingebouwd',offline:'Offline — opgeslagen gegevens',export:'Back-up exporteren',import:'Back-up importeren',imported:'Geïmporteerd',
-  sortTitle:'A–Z',sortRecent:'Recent',sortStatus:'Status',error:'Er ging iets mis',followingX:'Je volgt',leadingX:'Jij leidt',color:'Kleur',members:'Leden',editedBy:'bewerkt door',origKey:'Originele toonaard',playKey:'Gespeelde toonaard (transponeren)',resetKey:'Terug naar origineel',parts:'Songdelen & akkoorden (in de originele toonaard)',partsHelp:'Typ de akkoorden in de originele toonaard. Bij transponeren veranderen ze mee.',chordsHelp:'Schrijf akkoorden in de originele toonaard. Op het podium worden akkoordregels getransponeerd getoond; de tekst blijft ongewijzigd.',p_intro:'Intro',p_verse:'Couplet',p_prechorus:'Pre-chorus',p_chorus:'Refrein',p_bridge:'Brug',p_solo:'Solo',p_outro:'Outro'},
- he:{appName:'ניהול להקות',songs:'שירים',setlists:'סט־ליסטים',settings:'הגדרות',password:'סיסמה',yourName:'השם שלך (לא חובה)',login:'כניסה',logout:'יציאה',wrong:'סיסמה שגויה',
+  sortTitle:'A–Z',sortRecent:'Recent',sortStatus:'Status',error:'Er ging iets mis',followingX:'Je volgt',leadingX:'Jij leidt',color:'Kleur',members:'Leden',editedBy:'bewerkt door',origKey:'Originele toonaard',playKey:'Gespeelde toonaard (transponeren)',resetKey:'Terug naar origineel',parts:'Songdelen & akkoorden (in de originele toonaard)',partsHelp:'Typ de akkoorden in de originele toonaard. Bij transponeren veranderen ze mee.',findLyrics:'Songtekst zoeken',chordsHelp:'Schrijf akkoorden in de originele toonaard. Op het podium worden akkoordregels getransponeerd getoond; de tekst blijft ongewijzigd.',p_intro:'Intro',p_verse:'Couplet',p_prechorus:'Pre-chorus',p_chorus:'Refrein',p_bridge:'Brug',p_solo:'Solo',p_outro:'Outro',calendar:'Agenda',newEvent:'Nieuwe afspraak',editEvent:'Afspraak bewerken',ev_rehearsal:'Repetitie',ev_gig:'Optreden',ev_other:'Overig',allDay:'Hele dag',startT:'Begin',endT:'Einde',location:'Locatie',evNotes:'Details',upcoming:'Komend',past:'Voorbij',noEvents:'Nog niets in de agenda.',openGoogle:'Openen in Google Agenda',loading:'Laden…',calNotSet:'De bandagenda is nog niet gekoppeld. Barak kan dat doen.',calSetupTitle:'Google Agenda van de band koppelen',calStep1:'Open in Google Agenda de instellingen van de bandagenda → “Delen met specifieke personen” → voeg dit adres toe met “Wijzigingen aanbrengen in afspraken”:',calStep2:'Kopieer in dezelfde instellingen bij “Agenda integreren” de agenda-ID en plak hem hier:',calId:'Agenda-ID',calKeyMissing:'De Google-sleutel staat nog niet op de server (GOOGLE_SA_KEY). Doe eerst de Google Cloud-stap.',calNoAccess:'Google weigert de toegang. Controleer of de agenda gedeeld is met dit adres, met “Wijzigingen aanbrengen in afspraken”:',copied:'Gekopieerd',setlistFor:'Setlist voor dit optreden',recurringNote:'Herhalende afspraak: alleen deze datum wordt gewijzigd.',calBtn:'Google Agenda',retry:'Opnieuw',membersLbl:'Bandleden (één naam per regel)',membersHelp:'Hiermee zie je wie nog moet antwoorden voor een repetitie of optreden. Schrijf de namen zoals mensen ze bij het inloggen invullen.',notifs:'Meldingen',notifOn:'Meldingen aanzetten',notifOff:'Uitzetten',notifOnTxt:'Aan op dit toestel: nieuwe repetities en optredens, nieuwe mail, setlist-wijzigingen.',notifNo:'Dit toestel kan hier geen meldingen krijgen. Op iPhone: zet de app eerst op het beginscherm en open hem van daaruit.',notifDenied:'Meldingen zijn geblokkeerd voor deze app in de instellingen van dit toestel.',backups:'Back-ups',backupsHelp:'Elke maandag wordt automatisch een back-up gemaakt; de laatste 12 blijven bewaard. Terugzetten: download er een en kies dan “Back-up importeren”.',backupNow:'Nu back-up maken',noBackups:'Nog geen back-ups.',avail:'Wie kan er?',a_yes:'Ja',a_no:'Nee',a_maybe:'Misschien',notAnswered:'Nog geen antwoord',needName:'Vul eerst je naam in (Instellingen → Je naam).',gigDetails:'Details optreden',arrive:'Aankomst',soundcheck:'Soundcheck',contact:'Contact ter plaatse',fee:'Gage',bring:'Meenemen',toEvent:'In de agenda zetten',practice:'Moet geoefend',practiceF:'Oefenen',findOrig:'Zoeken op YouTube',metro:'Metronoom',click:'Klik',mailBackupNote:'Het script bewaart ook elke week een back-up in de Google Drive van deze Gmail (map “BandBase backups”).',inbox:'Mail',noMail:'Nog geen mail.',mailNotSet:'De bandmailbox is nog niet gekoppeld. Barak kan dat doen.',mailSetupTitle:'Gmail van de band koppelen',mailStep1:'Log in op het Gmail-account van de band, open script.google.com en klik op “Nieuw project”.',mailStep2:'Verwijder wat er staat en plak dit script:',mailStep3:'Sla op, kies bovenaan de functie “setup” en klik op Uitvoeren. Google vraagt om toestemming: sta het toe (Geavanceerd → Ga naar project, als er een waarschuwing komt).',mailStep4:'Klaar. Nieuwe mail verschijnt hier binnen 5 minuten.',mailGen:'Koppelingsscript maken',mailRegen:'Nieuw koppelingsscript',mailRegenWarn:'Het oude script werkt dan niet meer. Doorgaan?',copyScript:'Script kopiëren',from:'Van',to:'Aan',reply:'Beantwoorden',openGmail:'Openen in Gmail',attachments:'Bijlagen',hide:'Uit de app verwijderen',mailHelp:'Mail die binnenkomt op de Gmail van de band. Beantwoord vanuit je eigen mail of in Gmail.'},
+ he:{appName:'BandBase',songs:'שירים',setlists:'סט־ליסטים',settings:'הגדרות',password:'סיסמה',yourName:'השם שלך (לא חובה)',login:'כניסה',logout:'יציאה',wrong:'סיסמה שגויה',
   setupTitle:'הגדרה ראשונה',setupText:'בחר סיסמת מנהל (רק בשבילך) וצור את הלהקה הראשונה עם סיסמה משלה לחברי הלהקה.',adminPw:'סיסמת מנהל (רק אתה)',bandName:'שם הלהקה',bandPw:'סיסמת הלהקה (לחברים)',create:'יצירה',samePw:'צריך שתי סיסמאות שונות',minPw:'לפחות 4 תווים',
   search:'חיפוש',addSong:'הוספת שיר',newSong:'שיר חדש',editSong:'עריכת שיר',title:'שם השיר',artist:'מבצע מקורי',key:'סולם',bpm:'BPM',duration:'משך (m:ss)',tuning:'כיוון',status:'סטטוס',active:'פעיל',learning:'בלמידה',parked:'בצד',
   notes:'הערות (מוצגות בגדול על הבמה)',chords:'מילים / אקורדים',link:'קישור (YouTube, Drive…)',midi:'MIDI Program (0–127)',midiCh:'ערוץ MIDI',save:'שמירה',cancel:'ביטול',del:'מחיקה',confirmDel:'למחוק? אי אפשר לבטל.',
@@ -197,7 +212,7 @@ const T = {
   midiOn:'MIDI',midiNone:'לא נמצא מכשיר MIDI',midiNo:'בדפדפן הזה אין MIDI (צריך Chrome במחשב או באנדרואיד)',
   language:'שפה',me:'אני',bands:'להקות',addBand:'הוספת להקה',changePw:'שינוי סיסמה',newPw:'סיסמה חדשה',adminPwChange:'שינוי סיסמת מנהל',pwInUse:'הסיסמה הזו כבר בשימוש',saved:'נשמר',
   version:'גרסה',appUpdate:'עדכוני אפליקציה',customApp:'גרסה מעודכנת פעילה',builtinApp:'גרסה מובנית',revert:'חזרה לגרסה המובנית',offline:'אין חיבור — מוצגים נתונים שמורים',export:'ייצוא גיבוי',import:'ייבוא גיבוי',imported:'יובא',
-  sortTitle:'א–ת',sortRecent:'אחרונים',sortStatus:'סטטוס',error:'משהו השתבש',followingX:'אתה עוקב',leadingX:'אתה מוביל',color:'צבע',members:'חברים',editedBy:'נערך ע״י',origKey:'סולם מקורי',playKey:'הסולם שלנו (טרנספוזיציה)',resetKey:'חזרה למקור',parts:'חלקי השיר ואקורדים (בסולם המקורי)',partsHelp:'כותבים את האקורדים בסולם המקורי. כשמשנים סולם, הם משתנים איתו.',chordsHelp:'כותבים אקורדים בסולם המקורי. במצב במה שורות האקורדים מוצגות אחרי הטרנספוזיציה, והמילים נשארות כמו שהן.',p_intro:'אינטרו',p_verse:'בית',p_prechorus:'פרה־פזמון',p_chorus:'פזמון',p_bridge:'גשר',p_solo:'סולו',p_outro:'אאוטרו'}
+  sortTitle:'א–ת',sortRecent:'אחרונים',sortStatus:'סטטוס',error:'משהו השתבש',followingX:'אתה עוקב',leadingX:'אתה מוביל',color:'צבע',members:'חברים',editedBy:'נערך ע״י',origKey:'סולם מקורי',playKey:'הסולם שלנו (טרנספוזיציה)',resetKey:'חזרה למקור',parts:'חלקי השיר ואקורדים (בסולם המקורי)',partsHelp:'כותבים את האקורדים בסולם המקורי. כשמשנים סולם, הם משתנים איתו.',findLyrics:'חיפוש מילים',chordsHelp:'כותבים אקורדים בסולם המקורי. במצב במה שורות האקורדים מוצגות אחרי הטרנספוזיציה, והמילים נשארות כמו שהן.',p_intro:'אינטרו',p_verse:'בית',p_prechorus:'פרה־פזמון',p_chorus:'פזמון',p_bridge:'גשר',p_solo:'סולו',p_outro:'אאוטרו',calendar:'יומן',newEvent:'אירוע חדש',editEvent:'עריכת אירוע',ev_rehearsal:'חזרה',ev_gig:'הופעה',ev_other:'אחר',allDay:'כל היום',startT:'התחלה',endT:'סיום',location:'מקום',evNotes:'פרטים',upcoming:'קרוב',past:'עבר',noEvents:'עוד אין כלום ביומן.',openGoogle:'פתיחה ביומן גוגל',loading:'טוען…',calNotSet:'יומן הלהקה עוד לא מחובר. ברק יכול לחבר אותו.',calSetupTitle:'חיבור יומן הגוגל של הלהקה',calStep1:'ביומן גוגל, פותחים את ההגדרות של יומן הלהקה ← "שיתוף עם אנשים מסוימים" ← מוסיפים את הכתובת הזו עם הרשאת "ביצוע שינויים באירועים":',calStep2:'באותן הגדרות, תחת "שילוב היומן", מעתיקים את מזהה היומן ומדביקים כאן:',calId:'מזהה היומן',calKeyMissing:'מפתח הגוגל עוד לא הותקן בשרת (GOOGLE_SA_KEY). צריך קודם להשלים את השלב ב-Google Cloud.',calNoAccess:'גוגל סירב לגישה. צריך לבדוק שהיומן משותף עם הכתובת הזו, עם הרשאת "ביצוע שינויים באירועים":',copied:'הועתק',setlistFor:'סט־ליסט להופעה הזו',recurringNote:'אירוע חוזר: רק התאריך הזה משתנה.',calBtn:'יומן גוגל',retry:'לנסות שוב',membersLbl:'חברי הלהקה (שם אחד בכל שורה)',membersHelp:'כך רואים מי עוד לא ענה לגבי חזרה או הופעה. כותבים את השמות כמו שכל אחד ממלא אותם בכניסה.',notifs:'התראות',notifOn:'הפעלת התראות',notifOff:'כיבוי',notifOnTxt:'פועל במכשיר הזה: חזרות והופעות חדשות, מיילים חדשים, שינויים בסט־ליסט.',notifNo:'המכשיר הזה לא יכול לקבל כאן התראות. באייפון: קודם מוסיפים את האפליקציה למסך הבית ופותחים אותה משם.',notifDenied:'ההתראות של האפליקציה חסומות בהגדרות של המכשיר.',backups:'גיבויים',backupsHelp:'בכל יום שני נוצר גיבוי אוטומטי, ונשמרים 12 האחרונים. כדי לשחזר: מורידים גיבוי ובוחרים "ייבוא גיבוי".',backupNow:'גיבוי עכשיו',noBackups:'עוד אין גיבויים.',avail:'מי יכול להגיע?',a_yes:'כן',a_no:'לא',a_maybe:'אולי',notAnswered:'עוד לא ענו',needName:'קודם ממלאים שם (הגדרות ← השם שלך).',gigDetails:'פרטי ההופעה',arrive:'שעת הגעה',soundcheck:'סאונדצ׳ק',contact:'איש קשר במקום',fee:'תשלום',bring:'מה להביא',toEvent:'הוספה ליומן',practice:'צריך עוד חזרות',practiceF:'לתרגל',findOrig:'חיפוש ביוטיוב',metro:'מטרונום',click:'קליק',mailBackupNote:'הסקריפט גם שומר גיבוי שבועי ב-Google Drive של ה-Gmail הזה (בתיקייה "BandBase backups").',inbox:'דואר',noMail:'עוד אין מיילים.',mailNotSet:'תיבת הדואר של הלהקה עוד לא מחוברת. ברק יכול לחבר אותה.',mailSetupTitle:'חיבור ה-Gmail של הלהקה',mailStep1:'נכנסים לחשבון ה-Gmail של הלהקה, פותחים את script.google.com ולוחצים "פרויקט חדש".',mailStep2:'מוחקים את מה שכתוב שם ומדביקים את הסקריפט הזה:',mailStep3:'שומרים, בוחרים למעלה את הפונקציה "setup" ולוחצים "הפעלה". גוגל יבקש הרשאה: מאשרים (אם מופיעה אזהרה: מתקדם ← מעבר לפרויקט).',mailStep4:'זהו. מיילים חדשים יופיעו כאן תוך 5 דקות.',mailGen:'יצירת סקריפט חיבור',mailRegen:'סקריפט חיבור חדש',mailRegenWarn:'הסקריפט הישן יפסיק לעבוד. להמשיך?',copyScript:'העתקת הסקריפט',from:'מאת',to:'אל',reply:'תשובה',openGmail:'פתיחה ב-Gmail',attachments:'קבצים מצורפים',hide:'הסרה מהאפליקציה',mailHelp:'מיילים שמגיעים ל-Gmail של הלהקה. עונים מהמייל שלכם או ב-Gmail.'}
 };
 let lang = localStorage.getItem('lang') || (/^he|^iw/.test(navigator.language) ? 'he' : /^nl/.test(navigator.language) ? 'nl' : 'en');
 const t = k => (T[lang] && T[lang][k]) || T.en[k] || k;
@@ -260,6 +275,8 @@ const I = {
  copy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
  minus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>',
+ mail:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
+ cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
  link:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>'
 };
 
@@ -277,8 +294,12 @@ async function api(path, opts = {}){
 const S = { state:null, band:null, data:null, tab: localStorage.getItem('tab') || 'songs', q:'', sort: localStorage.getItem('sort') || 'title', offline:false };
 const bandKey = id => 'band:' + id;
 
+const TABS = ['songs','setlists','calendar','inbox','settings'];
+const tabFromHash = () => { const h = location.hash.slice(1); if (TABS.includes(h)){ S.tab = h; localStorage.setItem('tab', h); history.replaceState(null, '', location.pathname); } };
+window.addEventListener('hashchange', () => { tabFromHash(); if (S.data && !stageCtx) render(); });
 async function boot(){
  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+ tabFromHash();
  try { S.state = await api('/api/state'); S.offline = false; }
  catch(e){ S.offline = true; S.state = JSON.parse(localStorage.getItem('state') || 'null'); }
  if (S.state && S.state.me) localStorage.setItem('state', JSON.stringify(S.state));
@@ -291,6 +312,7 @@ async function boot(){
  S.band = bands.find(b => b.id === want) || bands[0];
  await loadBand();
  render();
+ refreshPush();
 }
 
 async function loadBand(){
@@ -321,7 +343,7 @@ const songById = id => S.data.songs.find(s => s.id === id);
 // ---------- auth screens ----------
 function langSeg(){ return `<div class="seg" id="langseg">${['he','en','nl'].map(l => `<button data-l="${l}" class="${l===lang?'on':''}">${{he:'עב',en:'EN',nl:'NL'}[l]}</button>`).join('')}</div>`; }
 function bindLangSeg(cb){ const s = $('#langseg'); if (s) s.onclick = e => { const b = e.target.closest('button'); if (!b) return; lang = b.dataset.l; localStorage.setItem('lang', lang); applyLang(); cb(); }; }
-const logo = `<svg class="logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1b1b20"/><path d="M20 46V18l26-6v28" fill="none" stroke="#f5a524" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="46" r="6" fill="#f5a524"/><circle cx="41" cy="40" r="6" fill="#f5a524"/></svg>`;
+const logo = `<img class="logo" src="/icon-192.png" alt="" style="border-radius:14px">`;
 
 function renderLogin(err, offline){
  $('#app').innerHTML = `<div class="auth">${logo}<h1>${t('appName')}</h1><p class="muted small">${offline ? esc(t('offline')) : '&nbsp;'}</p>
@@ -363,34 +385,47 @@ function render(){
   : `<h1 class="ell">${esc(S.data.band.name)}</h1>`;
  $('#app').innerHTML = `<header><div class="row"><span class="dot"></span>${head}<span class="grow"></span>
    ${S.tab==='songs'?`<button class="icon" id="add" aria-label="${t('addSong')}">${I.plus}</button>`:''}
-   ${S.tab==='setlists'?`<button class="icon" id="add" aria-label="${t('newSetlist')}">${I.plus}</button>`:''}</div></header>
+   ${S.tab==='setlists'?`<button class="icon" id="add" aria-label="${t('newSetlist')}">${I.plus}</button>`:''}
+   ${S.tab==='calendar'?`<button class="icon ${S.cal && S.cal.configured ? '' : 'hidden'}" id="add" aria-label="${t('newEvent')}">${I.plus}</button>`:''}</div></header>
   <main id="main"></main>
-  <nav class="tabs">${[['songs',I.songs],['setlists',I.list],['settings',I.gear]].map(([k,ic]) => `<button data-t="${k}" class="${S.tab===k?'on':''}">${ic}<span>${t(k)}</span></button>`).join('')}</nav>`;
+  <nav class="tabs">${[['songs',I.songs],['setlists',I.list],['calendar',I.cal],['inbox',I.mail],['settings',I.gear]].map(([k,ic]) => `<button data-t="${k}" class="${S.tab===k?'on':''}">${ic}<span>${t(k)}</span></button>`).join('')}</nav>`;
  $('nav.tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.tab = b.dataset.t; localStorage.setItem('tab', S.tab); render(); window.scrollTo(0,0); };
  const bs = $('#bandsel'); if (bs) bs.onchange = async () => { S.band = bands.find(b => b.id === bs.value); localStorage.setItem('band', S.band.id); await loadBand(); render(); };
- const add = $('#add'); if (add) add.onclick = () => S.tab === 'songs' ? editSong() : newSetlist();
- ({ songs: renderSongs, setlists: renderSetlists, settings: renderSettings })[S.tab]();
+ const add = $('#add'); if (add) add.onclick = () => S.tab === 'songs' ? editSong() : S.tab === 'calendar' ? editEvent() : newSetlist();
+ (({ songs: renderSongs, setlists: renderSetlists, calendar: renderCalendar, inbox: renderInbox, settings: renderSettings })[S.tab] || renderSongs)();
 }
+
+// ---------- metronome click (Web Audio); first beat of each bar is higher ----------
+const Click = { ac:null, t:null, n:0,
+ get on(){ return !!this.t; },
+ start(bpm){ this.stop(); if (!(bpm >= 20 && bpm <= 400)) return; const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+  this.ac = this.ac || new AC(); this.ac.resume(); this.n = 0;
+  const tick = () => { const c = this.ac, o = c.createOscillator(), g = c.createGain(), now = c.currentTime;
+   o.frequency.value = this.n++ % 4 === 0 ? 1600 : 1050; g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.7, now + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+   o.connect(g).connect(c.destination); o.start(now); o.stop(now + 0.06); };
+  tick(); this.t = setInterval(tick, 60000 / bpm); },
+ stop(){ clearInterval(this.t); this.t = null; } };
 
 // ---------- songs ----------
 function songChips(s){
- return `${s.key?`<span class="chip k">${esc(s.key)}${s.shift?` <span class="muted">${fmtShift(s.shift)}</span>`:''}</span>`:''}${s.bpm?`<span class="chip">${esc(s.bpm)} bpm</span>`:''}${s.tuning?`<span class="chip">${esc(s.tuning)}</span>`:''}${s.status==='learning'?`<span class="chip learn">${t('learning')}</span>`:''}${s.status==='parked'?`<span class="chip park">${t('parked')}</span>`:''}`;
+ return `${s.key?`<span class="chip k">${esc(s.key)}${s.shift?` <span class="muted">${fmtShift(s.shift)}</span>`:''}</span>`:''}${s.bpm?`<span class="chip">${esc(s.bpm)} bpm</span>`:''}${s.tuning?`<span class="chip">${esc(s.tuning)}</span>`:''}${s.status==='learning'?`<span class="chip learn">${t('learning')}</span>`:''}${s.status==='parked'?`<span class="chip park">${t('parked')}</span>`:''}${s.practice?`<span class="chip" style="color:var(--danger)">${t('practiceF')}</span>`:''}`;
 }
 function renderSongs(){
  const q = S.q.toLowerCase();
- let songs = S.data.songs.filter(s => !q || (s.title + ' ' + (s.artist||'')).toLowerCase().includes(q));
+ let songs = S.data.songs.filter(s => (!q || (s.title + ' ' + (s.artist||'')).toLowerCase().includes(q)) && (!S.practice || s.practice));
  const rank = { active:0, learning:1, parked:2 };
  songs.sort(S.sort === 'recent' ? (a,b) => (b.updated||0) - (a.updated||0)
   : S.sort === 'status' ? (a,b) => (rank[a.status||'active'] - rank[b.status||'active']) || coll.compare(a.title, b.title)
   : (a,b) => coll.compare(a.title, b.title));
  const total = S.data.songs.filter(s => (s.status||'active') === 'active').reduce((a,s) => a + (+s.duration||0), 0);
  $('#main').innerHTML = `<div class="toolbar"><input type="search" id="q" placeholder="${t('search')}" value="${esc(S.q)}"></div>
-  <div class="toolbar"><div class="seg" id="sortseg">${[['title',t('sortTitle')],['recent',t('sortRecent')],['status',t('sortStatus')]].map(([k,l]) => `<button data-s="${k}" class="${S.sort===k?'on':''}">${l}</button>`).join('')}</div></div>
+  <div class="toolbar"><div class="seg" id="sortseg">${[['title',t('sortTitle')],['recent',t('sortRecent')],['status',t('sortStatus')]].map(([k,l]) => `<button data-s="${k}" class="${S.sort===k?'on':''}">${l}</button>`).join('')}</div><span class="grow"></span><button class="st-pill ${S.practice?'on':''}" id="prf" style="padding:6px 11px">${t('practiceF')}</button></div>
   ${S.data.songs.length ? `<div class="count"><span>${S.data.songs.length} ${t('songsN')}</span><span>${t('active')}: ${fmtDur(total)}</span></div>
   <ul class="list" id="sl">${songs.map(s => `<li class="tap" data-id="${s.id}"><div class="grow"><div class="title ell" dir="auto">${esc(s.title)}</div><div class="row" style="gap:6px;margin-top:3px"><span class="muted small ell" dir="auto" style="flex:0 1 auto">${esc(s.artist||'')}</span><span class="chips">${songChips(s)}</span></div></div><span class="dur">${fmtDur(s.duration)}</span></li>`).join('')}</ul>`
   : `<div class="empty">${t('noSongs')}<br><br><button class="btn primary" id="add2">${I.plus} ${t('addSong')}</button></div>`}`;
  const qi = $('#q'); qi.oninput = () => { S.q = qi.value; const pos = qi.selectionStart; renderSongs(); const n = $('#q'); n.focus(); n.setSelectionRange(pos,pos); };
  $('#sortseg').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.sort = b.dataset.s; localStorage.setItem('sort', S.sort); renderSongs(); };
+ $('#prf').onclick = () => { S.practice = !S.practice; renderSongs(); };
  const sl = $('#sl'); if (sl) sl.onclick = e => { const li = e.target.closest('li'); if (li) editSong(songById(li.dataset.id)); };
  const a2 = $('#add2'); if (a2) a2.onclick = () => editSong();
 }
@@ -413,6 +448,7 @@ function editSong(song){
   <div class="grid3"><label class="f"><span>${t('origKey')}</span><input type="text" name="key" list="keys" value="${esc(origOf(s))}"></label>
    <label class="f"><span>${t('bpm')}</span><input type="number" name="bpm" min="20" max="300" inputmode="numeric" value="${esc(s.bpm||'')}"></label>
    <label class="f"><span>${t('duration')}</span><input type="text" name="duration" inputmode="numeric" placeholder="3:30" value="${esc(fmtDur(s.duration))}"></label></div>
+  <div class="row" style="margin:-4px 0 12px"><button type="button" class="btn sm" id="metro">♩ ${t('metro')}</button></div>
   <div class="f"><span class="muted small" style="display:block;margin-bottom:5px">${t('playKey')}</span>
    <div class="row" id="tp"><button type="button" class="btn" id="tdown" aria-label="-1">${I.minus}</button>
     <div class="grow" style="text-align:center"><b id="tkey" style="font-size:22px;color:var(--accent)" dir="ltr"></b> <span id="tsh" class="muted" dir="ltr"></span></div>
@@ -426,9 +462,12 @@ function editSong(song){
   <div class="grid2"><label class="f"><span>${t('tuning')}</span><input type="text" name="tuning" list="tunings" value="${esc(s.tuning||'')}"></label>
    <label class="f"><span>${t('status')}</span><select name="status">${['active','learning','parked'].map(k => `<option value="${k}" ${(s.status||'active')===k?'selected':''}>${t(k)}</option>`).join('')}</select></label></div>
   <datalist id="tunings"><option value="E standard"><option value="Eb standard"><option value="Drop D"><option value="Drop C#"><option value="D standard"><option value="Drop C"></datalist>
+  <label class="f row" style="gap:8px"><input type="checkbox" name="practice" ${s.practice?'checked':''} style="width:auto"><span style="margin:0">${t('practice')}</span></label>
   <label class="f"><span>${t('notes')}</span><textarea name="notes" style="min-height:70px">${esc(s.notes||'')}</textarea></label>
   <label class="f"><span>${t('chords')}</span><textarea name="chords" class="mono" spellcheck="false" dir="ltr">${esc(s.chords||'')}</textarea><span class="muted small" style="display:block;margin-top:4px">${t('chordsHelp')}</span></label>
+  <div class="row" style="margin:-4px 0 12px"><button type="button" class="btn sm" id="findly">${I.link} ${t('findLyrics')}</button></div>
   <label class="f"><span>${t('link')}</span><input type="url" name="link" value="${esc(s.link||'')}" placeholder="https://"></label>
+  <div class="row" style="margin:-4px 0 12px"><button type="button" class="btn sm" id="findyt">${I.play} ${t('findOrig')}</button></div>
   <div class="grid2"><label class="f"><span>${t('midi')}</span><input type="number" name="midi" min="0" max="127" inputmode="numeric" value="${esc(s.midi ?? '')}"></label>
    <label class="f"><span>${t('midiCh')}</span><input type="number" name="midiCh" min="1" max="16" inputmode="numeric" value="${esc(s.midiCh||'')}" placeholder="1"></label></div>
   ${song && song.by ? `<p class="muted small">${t('editedBy')} ${esc(song.by)} · ${new Date(song.updated).toLocaleString()}</p>` : ''}
@@ -438,7 +477,7 @@ function editSong(song){
  f.onsubmit = async e => {
   e.preventDefault(); const fd = new FormData(f);
   const v = Object.fromEntries(fd.entries());
-  const ok = v.key.trim(); Object.assign(s, { title:v.title.trim(), artist:v.artist.trim(), origKey: ok, shift: ok ? shift : 0, parts: parts.filter(x => x.chords.trim() || x.name), key: shiftKey(ok, ok ? shift : 0), bpm: v.bpm ? +v.bpm : '', duration: parseDur(v.duration), tuning:v.tuning.trim(), status:v.status, notes:v.notes, chords:v.chords, link:v.link.trim(), midi: v.midi === '' ? '' : +v.midi, midiCh: v.midiCh ? +v.midiCh : '' });
+  const ok = v.key.trim(); Object.assign(s, { title:v.title.trim(), artist:v.artist.trim(), origKey: ok, shift: ok ? shift : 0, parts: parts.filter(x => x.chords.trim() || x.name), key: shiftKey(ok, ok ? shift : 0), bpm: v.bpm ? +v.bpm : '', duration: parseDur(v.duration), tuning:v.tuning.trim(), status:v.status, notes:v.notes, chords:v.chords, link:v.link.trim(), midi: v.midi === '' ? '' : +v.midi, midiCh: v.midiCh ? +v.midiCh : '', practice: !!v.practice });
   try { await saveItem('song', s); sh.close(); toast(t('saved')); render(); } catch(x){ toast(t('error')); }
  };
  let shift = +s.shift || 0;
@@ -470,6 +509,16 @@ function editSong(song){
  $('#tup', sh.el).onclick = () => step(1); $('#tdown', sh.el).onclick = () => step(-1);
  $('#treset', sh.el).onclick = () => { shift = 0; drawT(); };
  f.key.addEventListener('input', drawT); drawT();
+ $('#findyt', sh.el).onclick = () => { const q = [f.title.value, f.artist.value].map(x => x.trim()).filter(Boolean).join(' ');
+  if (!q) { f.title.focus(); return; } window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(q), '_blank', 'noopener'); };
+ const mb = $('#metro', sh.el), syncM = () => mb.classList.toggle('primary', Click.on);
+ mb.onclick = () => { if (Click.on) Click.stop(); else Click.start(+f.bpm.value); syncM(); };
+ f.bpm.addEventListener('input', () => { if (Click.on) Click.start(+f.bpm.value); });
+ sh.el.addEventListener('click', e => { if (e.target === sh.el || e.target.closest('[data-close]')) Click.stop(); });
+ f.addEventListener('submit', () => Click.stop());
+ $('#findly', sh.el).onclick = () => { const q = [f.title.value, f.artist.value].map(x => x.trim()).filter(Boolean).join(' ');
+  if (!q) { f.title.focus(); return; }
+  window.open('https://www.google.com/search?q=' + encodeURIComponent(q + ' lyrics'), '_blank', 'noopener'); };
  const d = $('#del', sh.el); if (d) d.onclick = async () => { if (!confirm(t('confirmDel'))) return; try { await deleteItem('song', song.id); sh.close(); render(); } catch(x){ toast(t('error')); } };
  if (!song) setTimeout(() => { if (!sh.el.contains(document.activeElement)) f.title.focus(); }, 80);
 }
@@ -483,9 +532,9 @@ function setlistStats(sl){
 function renderSetlists(){
  const lists = [...S.data.setlists].sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.updated||0)-(a.updated||0));
  $('#main').innerHTML = lists.length ? `<ul class="list" id="ll">${lists.map(sl => { const st = setlistStats(sl);
-   return `<li class="tap" data-id="${sl.id}"><div class="grow"><div class="title ell" dir="auto">${esc(sl.name||'—')}</div><div class="muted small ell">${[sl.date ? new Date(sl.date+'T12:00').toLocaleDateString(lang,{weekday:'short',day:'numeric',month:'short',year:'numeric'}) : '', esc(sl.venue||'')].filter(Boolean).join(' · ')}</div></div><span class="muted small">${st.count} · ${fmtDur(st.total)||'0:00'}</span></li>`; }).join('')}</ul>`
+   return `<li class="tap" data-id="${sl.id}"><div class="grow"><div class="title ell" dir="auto">${esc(sl.name||'—')}</div><div class="muted small ell">${[sl.date ? new Date(sl.date+'T12:00').toLocaleDateString(lang,{weekday:'short',day:'numeric',month:'short',year:'numeric'}) : '', esc(sl.venue||'')].filter(Boolean).join(' · ')}</div></div><span class="muted small">${st.count} · ${fmtDur(st.total)||'0:00'}</span>${st.count ? `<button class="btn primary sm" data-stage="${sl.id}" aria-label="${t('stage')}">${I.play}</button>` : ''}</li>`; }).join('')}</ul>`
   : `<div class="empty">${t('noSetlists')}<br><br><button class="btn primary" id="add2">${I.plus} ${t('newSetlist')}</button></div>`;
- const ll = $('#ll'); if (ll) ll.onclick = e => { const li = e.target.closest('li'); if (li) openSetlist(S.data.setlists.find(x => x.id === li.dataset.id)); };
+ const ll = $('#ll'); if (ll) ll.onclick = e => { const sb = e.target.closest('[data-stage]'); if (sb) return stageMode(S.data.setlists.find(x => x.id === sb.dataset.stage)); const li = e.target.closest('li'); if (li) openSetlist(S.data.setlists.find(x => x.id === li.dataset.id)); };
  const a2 = $('#add2'); if (a2) a2.onclick = newSetlist;
 }
 async function newSetlist(){
@@ -575,7 +624,7 @@ function printSetlist(sl){
 let stageCtx = null;
 function stageMode(sl){
  const items = (sl.entries||[]).map(e => e.b ? { b:1 } : songById(e.s)).filter(Boolean);
- const ctx = stageCtx = { sl, items, i:0, font: +(localStorage.getItem('stfont') || 20), lead:false, follow:false, beat: localStorage.getItem('stbeat') === '1', midi:null, wake:null, poll:null, beatT:null, lastLive:0 };
+ const ctx = stageCtx = { sl, items, i:0, font: +(localStorage.getItem('stfont') || 20), lead:false, follow:false, beat: localStorage.getItem('stbeat') === '1', click: localStorage.getItem('stclick') === '1', midi:null, wake:null, poll:null, beatT:null, lastLive:0 };
  const el = document.createElement('div'); el.id = 'stage'; document.body.appendChild(el); document.body.style.overflow = 'hidden';
  if (navigator.wakeLock) navigator.wakeLock.request('screen').then(w => ctx.wake = w).catch(()=>{});
  const relock = () => { if (document.visibilityState === 'visible' && navigator.wakeLock && stageCtx === ctx) navigator.wakeLock.request('screen').then(w => ctx.wake = w).catch(()=>{}); };
@@ -588,6 +637,7 @@ function stageMode(sl){
    <span class="st-pos">${it && !it.b ? songNo(ctx.i) : '—'}/${total}</span><span class="grow"></span>
    ${ctx.beat ? `<span class="beat" id="beat"></span>` : ''}
    <button class="st-pill ${ctx.beat?'on':''}" id="sbeat">${t('beat')}</button>
+   <button class="st-pill ${ctx.click?'on':''}" id="sclick">${t('click')}</button>
    <button class="st-pill ${ctx.midi?'on':''}" id="smidi">${t('midiOn')}</button>
    <button class="st-pill ${ctx.lead?'live':''}" id="slead">${t('lead')}</button>
    <button class="st-pill ${ctx.follow?'live':''}" id="sfollow">${t('follow')}</button>
@@ -606,6 +656,7 @@ function stageMode(sl){
   $('#fm', el).onclick = () => { ctx.font = Math.max(12, ctx.font - 2); localStorage.setItem('stfont', ctx.font); draw(); };
   $('#fp', el).onclick = () => { ctx.font = Math.min(48, ctx.font + 2); localStorage.setItem('stfont', ctx.font); draw(); };
   $('#sbeat', el).onclick = () => { ctx.beat = !ctx.beat; localStorage.setItem('stbeat', ctx.beat ? '1' : '0'); draw(); };
+  $('#sclick', el).onclick = () => { ctx.click = !ctx.click; localStorage.setItem('stclick', ctx.click ? '1' : '0'); draw(); };
   $('#smidi', el).onclick = midiToggle;
   $('#slead', el).onclick = () => { ctx.lead = !ctx.lead; if (ctx.lead) ctx.follow = false; setPoll(); pushLive(); draw(); toast(ctx.lead ? t('leadingX') : ''); };
   $('#sfollow', el).onclick = () => { ctx.follow = !ctx.follow; if (ctx.follow) ctx.lead = false; setPoll(); draw(); if (ctx.follow) pollLive(); };
@@ -616,8 +667,10 @@ function stageMode(sl){
  const pollLive = async () => { try { const l = await api(`/api/band/${S.band.id}/live`);
    if (l.on && l.setlist === sl.id && l.updated > ctx.lastLive){ ctx.lastLive = l.updated; if (l.idx !== ctx.i) go(l.idx, true); } } catch(e){} };
  const setPoll = () => { clearInterval(ctx.poll); ctx.poll = ctx.follow ? setInterval(pollLive, 2000) : null; };
- const startBeat = () => { clearInterval(ctx.beatT); const it = items[ctx.i]; const b = $('#beat', el);
-  if (!ctx.beat || !b || !it || it.b || !(+it.bpm)) return; const ms = 60000 / +it.bpm;
+ const startBeat = () => { clearInterval(ctx.beatT); Click.stop(); const it = items[ctx.i]; const b = $('#beat', el);
+  if (!it || it.b || !(+it.bpm)) return;
+  if (ctx.click) Click.start(+it.bpm);
+  if (!ctx.beat || !b) return; const ms = 60000 / +it.bpm;
   ctx.beatT = setInterval(() => { b.classList.add('on'); setTimeout(() => b.classList.remove('on'), Math.min(110, ms/3)); }, ms); };
  async function midiToggle(){
   if (ctx.midi){ ctx.midi = null; draw(); return; }
@@ -635,13 +688,299 @@ function stageMode(sl){
  let sx = null; el.addEventListener('touchstart', e => { sx = e.touches.length === 1 ? [e.touches[0].clientX, e.touches[0].clientY] : null; }, { passive:true });
  el.addEventListener('touchend', e => { if (!sx) return; const dx = e.changedTouches[0].clientX - sx[0], dy = e.changedTouches[0].clientY - sx[1];
   if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5){ const fwd = lang === 'he' ? dx > 0 : dx < 0; go(ctx.i + (fwd ? 1 : -1)); } sx = null; });
- function exit(){ clearInterval(ctx.poll); clearInterval(ctx.beatT); document.removeEventListener('keydown', key); document.removeEventListener('visibilitychange', relock);
+ function exit(){ clearInterval(ctx.poll); clearInterval(ctx.beatT); Click.stop(); document.removeEventListener('keydown', key); document.removeEventListener('visibilitychange', relock);
   if (ctx.lead) api(`/api/band/${S.band.id}/live`, { method:'PUT', body:{ on:false } }).catch(()=>{});
   try { ctx.wake && ctx.wake.release(); } catch(e){} el.remove(); stageCtx = null; if (!$('.sheet-bg')) document.body.style.overflow = ''; }
  draw();
  // auto-follow if someone is already leading this setlist
  api(`/api/band/${S.band.id}/live`).then(l => { if (l.on && l.setlist === sl.id && Date.now() - l.updated < 6*3600e3 && stageCtx === ctx && !ctx.lead){ ctx.follow = true; ctx.lastLive = l.updated; setPoll(); go(l.idx, true); } }).catch(()=>{});
 }
+
+// ---------- calendar (Google Calendar of the band, two-way through the server) ----------
+const calKey = id => 'cal:' + id;
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const dayDiff = (a, b) => Math.round((new Date(b+'T12:00') - new Date(a+'T12:00')) / 864e5);
+const shiftDate = (d, n) => { const x = new Date(d+'T12:00'); x.setDate(x.getDate() + n); return ymd(x); };
+async function renderCalendar(){
+ if (!S.cal || S.cal.band !== S.band.id){
+  let cached = null; try { cached = JSON.parse(localStorage.getItem(calKey(S.band.id)) || 'null'); } catch {}
+  S.cal = { band:S.band.id, past:false, ...(cached || {}), loaded:false };
+ }
+ drawCal();
+ const past = S.cal.past, now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+ const from = past ? new Date(+today - 365*864e5) : today, to = past ? today : new Date(+today + 400*864e5);
+ try {
+  const r = await api(`/api/band/${S.band.id}/cal?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`);
+  if (S.cal.band !== S.band.id || S.cal.past !== past) return;
+  Object.assign(S.cal, r, { err:null, loaded:true });
+  if (!r.configured) S.cal.events = [];
+  if (!past) localStorage.setItem(calKey(S.band.id), JSON.stringify(r));
+ } catch(e){ if (S.cal.band !== S.band.id) return; S.cal.err = e.status === 502 ? 'google' : (e.message || 'error'); S.cal.loaded = true; }
+ if (S.tab === 'calendar') drawCal();
+}
+function drawCal(){
+ const c = S.cal, main = $('#main'); if (!main || S.tab !== 'calendar') return;
+ const add = $('#add'); if (add) add.classList.toggle('hidden', !c.configured);
+ const admin = S.state.me.role === 'admin';
+ const copyRow = em => em ? `<code id="saem">${esc(em)}</code><button class="btn sm" id="cpy" aria-label="copy">${I.copy}</button>` : '';
+ if (c.loaded && c.configured === false){
+  main.innerHTML = !admin ? `<div class="empty">${t('calNotSet')}</div>`
+   : `<div class="calbox"><h3 style="margin-top:0">${t('calSetupTitle')}</h3>
+     ${!c.hasKey ? `<p class="muted">${t('calKeyMissing')}</p>` : `<p>1. ${t('calStep1')}</p>${copyRow(c.saEmail)}
+     <p style="margin-top:14px">2. ${t('calStep2')}</p>
+     <form id="cidf" class="row"><input type="text" id="cid" class="grow" dir="ltr" placeholder="…@group.calendar.google.com" value="${esc(c.calendarId||'')}" required><button class="btn primary">${t('save')}</button></form>`}</div>`;
+  bindCalSetup(); return;
+ }
+ const evs = c.events ? [...c.events] : null; if (evs && c.past) evs.reverse();
+ let html = `<div class="toolbar"><div class="seg" id="calseg">${[['up',t('upcoming')],['past',t('past')]].map(([k,l]) => `<button data-k="${k}" class="${(k==='past')===!!c.past?'on':''}">${l}</button>`).join('')}</div></div>`;
+ if (c.err) html += `<div class="calbox">${c.err === 'google' ? `<p>${t('calNoAccess')}</p>${copyRow(c.saEmail)}` : `<p>${t('error')}</p>`}<button class="btn sm" id="retry" style="margin-top:8px">${t('retry')}</button></div>`;
+ if (!evs) html += `<div class="empty">${t('loading')}</div>`;
+ else if (!evs.length && !c.err) html += `<div class="empty">${c.loaded ? t('noEvents') : t('loading')}</div>`;
+ else {
+  let month = '', open = false;
+  for (const e of evs){
+   const d = new Date(e.date + 'T12:00'), m = d.toLocaleDateString(lang, { month:'long', year:'numeric' });
+   if (m !== month){ if (open) html += '</ul>'; html += `<div class="count"><span>${esc(m)}</span></div><ul class="list cal">`; month = m; open = true; }
+   const when = e.allDay ? (e.endDate && e.endDate !== e.date ? `${t('allDay')} → ${new Date(e.endDate+'T12:00').toLocaleDateString(lang,{day:'numeric',month:'short'})}` : t('allDay')) : `${e.start}${e.end ? '–' + e.end : ''}`;
+   html += `<li class="tap" data-id="${esc(e.id)}"><div class="evd"><b>${d.getDate()}</b><span>${esc(d.toLocaleDateString(lang,{weekday:'short'}))}</span></div>
+    <div class="grow"><div class="title ell" dir="auto">${esc(e.title || '—')}</div><div class="muted small ell" dir="auto"><bdi dir="ltr">${esc(when)}</bdi>${e.location ? ' · ' + esc(e.location) : ''}</div>${availLine(e)}</div>
+    <span class="chip t-${e.type}">${t('ev_' + e.type)}</span></li>`;
+  }
+  if (open) html += '</ul>';
+ }
+ main.innerHTML = html;
+ $('#calseg').onclick = e => { const b = e.target.closest('button'); if (!b) return; const past = b.dataset.k === 'past'; if (past === !!c.past) return; c.past = past; c.events = null; c.err = null; renderCalendar(); };
+ main.querySelectorAll('ul.cal').forEach(ul => ul.onclick = e => { const li = e.target.closest('li'); if (li) editEvent(c.events.find(x => x.id === li.dataset.id)); });
+ const rt = $('#retry'); if (rt) rt.onclick = () => { c.err = null; renderCalendar(); };
+ bindCalSetup();
+}
+function bindCalSetup(){
+ const cp = $('#cpy'); if (cp) cp.onclick = () => { navigator.clipboard.writeText(S.cal.saEmail).then(() => toast(t('copied')), () => {}); };
+ const f = $('#cidf'); if (f) f.onsubmit = async e => { e.preventDefault(); if (await setCalendarId(S.band.id, $('#cid').value.trim())) renderCalendar(); };
+}
+async function setCalendarId(bandId, id){
+ try { await api('/api/admin/band/' + bandId, { method:'PUT', body:{ calendarId: id } }); }
+ catch(x){ toast(x.message === 'invalid' ? t('calId') + '?' : t('error')); return false; }
+ if (S.band && S.band.id === bandId){ S.data.band.calendarId = id; S.cal = null; localStorage.removeItem(calKey(bandId)); }
+ toast(t('saved')); return true;
+}
+function editEvent(ev, pre){
+ const isNew = !ev, now = new Date();
+ const e = ev ? { ...ev } : { title:'', type:'rehearsal', date: ymd(now), allDay:false, start:'20:00', end:'23:00', location:'', notes:'', ...(pre || {}) };
+ const sh = sheet(isNew ? t('newEvent') : t('editEvent'), `<form id="ef">
+  <div class="f"><div class="seg" id="etype">${['rehearsal','gig','other'].map(k => `<button type="button" data-k="${k}" class="${e.type===k?'on':''}">${t('ev_'+k)}</button>`).join('')}</div></div>
+  <label class="f"><span>${t('title')}</span><input type="text" name="title" dir="auto" value="${esc(e.title)}" placeholder="${esc(S.data.band.name + ' – ' + t('ev_' + e.type))}"></label>
+  <div class="grid2"><label class="f"><span>${t('date')}</span><input type="date" name="date" required value="${esc(e.date)}"></label>
+   <label class="f row" style="align-self:end;gap:8px;padding-bottom:10px"><input type="checkbox" name="allDay" ${e.allDay?'checked':''} style="width:auto"><span style="margin:0">${t('allDay')}</span></label></div>
+  <div class="grid2" id="times"><label class="f"><span>${t('startT')}</span><input type="time" name="start" value="${esc(e.start)}"></label>
+   <label class="f"><span>${t('endT')}</span><input type="time" name="end" value="${esc(e.end)}"></label></div>
+  <label class="f"><span>${t('location')}</span><input type="text" name="location" dir="auto" value="${esc(e.location)}"></label>
+  <div id="gigf" class="${e.type==='gig'?'':'hidden'}"><div class="muted small" style="margin:4px 0 6px;font-weight:600">${t('gigDetails')}</div>
+   <div class="grid2"><label class="f"><span>${t('arrive')}</span><input type="time" name="arrive" value="${esc(e.arrive||'')}"></label>
+    <label class="f"><span>${t('soundcheck')}</span><input type="time" name="soundcheck" value="${esc(e.soundcheck||'')}"></label></div>
+   <label class="f"><span>${t('contact')}</span><input type="text" name="contact" dir="auto" value="${esc(e.contact||'')}"></label>
+   <label class="f"><span>${t('fee')}</span><input type="text" name="fee" dir="auto" value="${esc(e.fee||'')}"></label>
+   <label class="f"><span>${t('bring')}</span><input type="text" name="bring" dir="auto" value="${esc(e.bring||'')}"></label></div>
+  ${ev ? `<div class="f"><div class="muted small" style="margin-bottom:6px;font-weight:600">${t('avail')}</div><div id="avb"></div></div>` : ''}
+  <label class="f"><span>${t('evNotes')}</span><textarea name="notes" dir="auto" style="min-height:70px">${esc(e.notes)}</textarea></label>
+  ${e.recurring ? `<p class="muted small">${t('recurringNote')}</p>` : ''}
+  ${ev && ev.by ? `<p class="muted small">${t('editedBy')} ${esc(ev.by)}</p>` : ''}
+  <div class="row" style="margin-top:6px;flex-wrap:wrap">${ev ? `<button type="button" class="btn danger" id="del">${I.trash}</button>` : ''}
+   ${ev && ev.link ? `<a class="btn" href="${esc(ev.link)}" target="_blank" rel="noopener" title="${t('openGoogle')}">${I.cal}</a>` : ''}
+   ${ev ? `<button type="button" class="btn ${e.type==='gig'?'':'hidden'}" id="slf">${I.list} ${t('setlistFor')}</button>` : ''}
+   <span class="grow"></span><button class="btn primary">${t('save')}</button></div></form>`);
+ const f = $('#ef', sh.el);
+ const syncTimes = () => $('#times', sh.el).classList.toggle('hidden', f.allDay.checked);
+ f.allDay.onchange = syncTimes; syncTimes();
+ $('#etype', sh.el).onclick = x => { const b = x.target.closest('button'); if (!b) return; e.type = b.dataset.k;
+  $('#etype', sh.el).querySelectorAll('button').forEach(y => y.classList.toggle('on', y === b));
+  f.title.placeholder = S.data.band.name + ' – ' + t('ev_' + e.type); const sl = $('#slf', sh.el); if (sl) sl.classList.toggle('hidden', e.type !== 'gig');
+  $('#gigf', sh.el).classList.toggle('hidden', e.type !== 'gig'); };
+ f.onsubmit = async x => {
+  x.preventDefault(); const btn = f.querySelector('.btn.primary'); btn.disabled = true;
+  const date = f.date.value, allDay = f.allDay.checked;
+  // a multi-day all-day event keeps its length when moved to another date
+  const endDate = allDay && ev && ev.allDay && ev.endDate ? shiftDate(ev.endDate, dayDiff(ev.date, date)) : date;
+  const body = { title: f.title.value.trim() || f.title.placeholder, type: e.type, date, allDay, start: allDay ? '' : f.start.value, end: allDay ? '' : f.end.value, endDate,
+   location: f.location.value.trim(), notes: f.notes.value,
+   ...(e.type === 'gig' ? { arrive: f.arrive.value, soundcheck: f.soundcheck.value, contact: f.contact.value.trim(), fee: f.fee.value.trim(), bring: f.bring.value.trim() } : {}), timeZone: (S.cal && S.cal.timeZone) || Intl.DateTimeFormat().resolvedOptions().timeZone };
+  try { await api(`/api/band/${S.band.id}/cal${ev ? '/' + encodeURIComponent(ev.id) : ''}`, { method: ev ? 'PUT' : 'POST', body });
+   sh.close(); toast(t('saved')); renderCalendar(); }
+  catch(err){ btn.disabled = false; toast(err.status === 502 ? t('calNoAccess').split('.')[0] : t('error')); }
+ };
+ const d = $('#del', sh.el); if (d) d.onclick = async () => { if (!confirm(t('confirmDel'))) return;
+  try { await api(`/api/band/${S.band.id}/cal/${encodeURIComponent(ev.id)}`, { method:'DELETE' }); sh.close(); renderCalendar(); } catch(x){ toast(t('error')); } };
+ const sl = $('#slf', sh.el); if (sl) sl.onclick = async () => {
+  let list = S.data.setlists.find(x => x.date === ev.date);
+  if (!list){ list = { name: ev.title, date: ev.date, venue: ev.location || '', time: ev.allDay ? '' : ev.start, entries:[] };
+   try { await saveItem('setlist', list); } catch(x){ return toast(t('error')); } }
+  sh.close(); openSetlist(list); };
+ if (ev) drawAvail(ev, $('#avb', sh.el));
+ if (isNew) setTimeout(() => f.title.focus(), 80);
+}
+// ---- availability: my answer + everyone's
+const AV = { yes:'✓', no:'✗', maybe:'?' };
+function availLine(e){
+ const a = e.avail || {}, n = k => Object.values(a).filter(v => v === k).length;
+ const open = bandMembers().filter(m => !(m in a)).length;
+ if (!Object.keys(a).length && !open) return '';
+ return `<div class="small" style="margin-top:3px;display:flex;gap:10px"><span style="color:var(--ok)">✓ ${n('yes')}</span><span style="color:var(--accent)">? ${n('maybe')}</span><span style="color:var(--danger)">✗ ${n('no')}</span>${open ? `<span class="muted">· ${open} ${t('notAnswered').toLowerCase()}</span>` : ''}</div>`;
+}
+function drawAvail(ev, box){
+ if (!box) return; const a = ev.avail = ev.avail || {}, me = (S.state.me.name || '').trim(), mine = a[me] || '';
+ const people = [...new Set([...bandMembers(), ...Object.keys(a)])];
+ box.innerHTML = `<div class="seg" id="myav">${['yes','maybe','no'].map(k => `<button type="button" data-k="${k}" class="${mine===k?'on':''}">${AV[k]} ${t('a_' + k)}</button>`).join('')}</div>
+  <ul class="list" style="margin-top:8px">${people.map(p => `<li><span class="grow" dir="auto">${esc(p)}</span><span class="small" style="color:${{yes:'var(--ok)',no:'var(--danger)',maybe:'var(--accent)'}[a[p]] || 'var(--muted)'}">${a[p] ? AV[a[p]] + ' ' + t('a_' + a[p]) : t('notAnswered')}</span></li>`).join('')}</ul>`;
+ $('#myav', box).onclick = async x => { const b = x.target.closest('button'); if (!b) return;
+  if (!me){ toast(t('needName')); return; }
+  const status = mine === b.dataset.k ? '' : b.dataset.k;
+  try { await api(`/api/band/${S.band.id}/avail`, { method:'PUT', body:{ event: ev.id, status } });
+   if (status) a[me] = status; else delete a[me];
+   const ce = S.cal && (S.cal.events || []).find(y => y.id === ev.id); if (ce) ce.avail = { ...a };
+   drawAvail(ev, box); drawCal(); }
+  catch(err){ toast(err.message === 'name_required' ? t('needName') : t('error')); } };
+}
+
+// ---------- inbox (mail of the band's Gmail, pushed in by an Apps Script running in that Gmail) ----------
+const gmailScript = (url, token) => `// BandBase: sends new mail from this Gmail to the band app every 5 minutes.
+// Run "setup" once. To stop: delete this project (or its trigger).
+var APP_URL = '${url}';
+var TOKEN = '${token}';
+
+function setup() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('syncInbox').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('backupToDrive').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(5).create();
+  syncInbox();
+  backupToDrive();
+}
+
+// weekly copy of the band's data in this account's Google Drive, folder "BandBase backups" (last 12 kept)
+function backupToDrive() {
+  var r = UrlFetchApp.fetch(APP_URL + '/backup', { headers: { 'x-inbox-token': TOKEN }, muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('Band app answered ' + r.getResponseCode());
+  var it = DriveApp.getFoldersByName('BandBase backups');
+  var folder = it.hasNext() ? it.next() : DriveApp.createFolder('BandBase backups');
+  folder.createFile('backup-' + new Date().toISOString().slice(0, 10) + '.json', r.getContentText(), 'application/json');
+  var files = [], fi = folder.getFiles();
+  while (fi.hasNext()) files.push(fi.next());
+  files.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
+  files.slice(12).forEach(function (f) { f.setTrashed(true); });
+}
+
+function syncInbox() {
+  var props = PropertiesService.getScriptProperties();
+  var last = Number(props.getProperty('last') || (Date.now() - 14 * 864e5));
+  var from = last - 15 * 60e3; // overlap; the app ignores mail it already has
+  var started = Date.now(), out = [];
+  GmailApp.search('in:inbox after:' + Math.floor(from / 1000), 0, 100).forEach(function (th) {
+    th.getMessages().forEach(function (m) {
+      if (m.getDate().getTime() < from) return;
+      out.push({ id: m.getId(), thread: th.getId(), from: m.getFrom(), to: m.getTo(), cc: m.getCc(), subject: m.getSubject(),
+        date: m.getDate().toISOString(), text: m.getPlainBody().slice(0, 60000),
+        attachments: m.getAttachments().map(function (a) { return a.getName(); }) });
+    });
+  });
+  for (var i = 0; i < out.length; i += 20) {
+    var r = UrlFetchApp.fetch(APP_URL, { method: 'post', contentType: 'application/json', headers: { 'x-inbox-token': TOKEN },
+      payload: JSON.stringify({ messages: out.slice(i, i + 20) }), muteHttpExceptions: true });
+    if (r.getResponseCode() !== 200) throw new Error('Band app answered ' + r.getResponseCode() + ': ' + r.getContentText());
+  }
+  props.setProperty('last', String(started));
+}
+`;
+const readKey = id => 'read:' + id;
+const readSet = () => { try { return new Set(JSON.parse(localStorage.getItem(readKey(S.band.id)) || '[]')); } catch { return new Set(); } };
+const markRead = mid => { const r = readSet(); r.add(mid); try { localStorage.setItem(readKey(S.band.id), JSON.stringify([...r].slice(-1500))); } catch {} };
+const fromName = f => { const m = String(f || '').match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>/); return m ? (m[1].trim() || m[2]) : String(f || ''); };
+const fromAddr = f => { const m = String(f || '').match(/<([^>]+)>/); return m ? m[1] : String(f || '').trim(); };
+const linkify = s => esc(s).replace(/https?:\/\/[^\s<>"']+/g, u => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
+async function renderInbox(){
+ if (!S.mail || S.mail.band !== S.band.id){
+  let cached = null; try { cached = JSON.parse(localStorage.getItem('mail:' + S.band.id) || 'null'); } catch {}
+  S.mail = { band:S.band.id, q:'', ...(cached || {}), loaded:false };
+ }
+ drawInbox();
+ try { const r = await api(`/api/band/${S.band.id}/inbox`); if (S.mail.band !== S.band.id) return;
+  Object.assign(S.mail, r, { loaded:true, err:null }); try { localStorage.setItem('mail:' + S.band.id, JSON.stringify(r)); } catch {} }
+ catch(e){ S.mail.loaded = true; S.mail.err = true; }
+ if (S.tab === 'inbox' && !$('.sheet-bg')) drawInbox();
+}
+function drawInbox(){
+ const c = S.mail, main = $('#main'); if (!main || S.tab !== 'inbox') return;
+ const admin = S.state.me.role === 'admin';
+ if (c.loaded && !c.on && !(c.messages || []).length){
+  main.innerHTML = admin ? `<div class="calbox"><h3 style="margin-top:0">${t('mailSetupTitle')}</h3><div id="mailsetup"><button class="btn primary" id="mgen">${I.mail} ${t('mailGen')}</button></div></div>`
+   : `<div class="empty">${t('mailNotSet')}</div>`;
+  bindMailSetup(); return;
+ }
+ const read = readSet(), q = (c.q || '').toLowerCase();
+ const list = (c.messages || []).filter(m => !q || (m.from + ' ' + m.subject + ' ' + m.snippet).toLowerCase().includes(q));
+ const today = new Date().toDateString();
+ main.innerHTML = `<div class="toolbar"><input type="search" id="mq" placeholder="${t('search')}" value="${esc(c.q||'')}"></div>
+  ${c.err ? `<p class="muted small">${t('offline')}</p>` : ''}
+  ${!c.messages ? `<div class="empty">${t('loading')}</div>` : !list.length ? `<div class="empty">${t('noMail')}</div>`
+  : `<ul class="list" id="ml">${list.map(m => { const d = new Date(m.date);
+   return `<li class="tap mail-li ${read.has(m.id) ? '' : 'unread'}" data-id="${esc(m.id)}"><div class="grow">
+    <div class="row"><span class="title ell grow" dir="auto">${esc(fromName(m.from))}</span><span class="muted small" style="flex:none">${esc(d.toDateString() === today ? d.toLocaleTimeString(lang,{hour:'2-digit',minute:'2-digit'}) : d.toLocaleDateString(lang,{day:'numeric',month:'short'}))}</span></div>
+    <div class="ell small" dir="auto">${esc(m.subject || '—')}${(m.attachments||[]).length ? ' 📎' : ''}</div>
+    <div class="muted small ell" dir="auto">${esc(m.snippet)}</div></div></li>`; }).join('')}</ul>`}
+  ${admin ? `<p style="margin-top:22px"><button class="btn sm" id="mregen">${t('mailRegen')}</button></p><div id="mailsetup"></div>` : ''}`;
+ const mq = $('#mq'); mq.oninput = () => { c.q = mq.value; const pos = mq.selectionStart; drawInbox(); const n = $('#mq'); n.focus(); n.setSelectionRange(pos, pos); };
+ const ml = $('#ml'); if (ml) ml.onclick = e => { const li = e.target.closest('li'); if (li) openMail(c.messages.find(m => m.id === li.dataset.id)); };
+ const rg = $('#mregen'); if (rg) rg.onclick = () => { if (confirm(t('mailRegenWarn'))) genMailScript(); };
+ bindMailSetup();
+}
+function bindMailSetup(){ const g = $('#mgen'); if (g) g.onclick = genMailScript; }
+async function genMailScript(){
+ let r; try { r = await api(`/api/admin/band/${S.band.id}/inbox-token`, { method:'POST' }); } catch(x){ return toast(t('error')); }
+ S.mail.on = true; const box = $('#mailsetup'); if (!box) return;
+ const code = gmailScript(r.url, r.token);
+ box.innerHTML = `<p>1. ${t('mailStep1')}</p><p>2. ${t('mailStep2')}</p><textarea class="script" readonly spellcheck="false">${esc(code)}</textarea>
+  <button class="btn sm" id="mcopy" style="margin:6px 0 12px">${I.copy} ${t('copyScript')}</button><p>3. ${t('mailStep3')}</p><p>4. ${t('mailStep4')}</p><p class="muted small">${t('mailBackupNote')}</p>`;
+ $('#mcopy').onclick = () => navigator.clipboard.writeText(code).then(() => toast(t('copied')), () => { const ta = box.querySelector('textarea'); ta.select(); });
+ const g = $('#mgen'); if (g) g.remove();
+}
+async function openMail(m){
+ markRead(m.id);
+ const li = document.querySelector(`#ml li[data-id="${CSS.escape(m.id)}"]`); if (li) li.classList.remove('unread');
+ const admin = S.state.me.role === 'admin', d = new Date(m.date);
+ const sh = sheet(m.subject || '—', `<div class="mail-meta" dir="auto"><b>${t('from')}:</b> ${esc(m.from)}<br><b>${t('to')}:</b> ${esc(m.to)}${m.cc ? `<br><b>Cc:</b> ${esc(m.cc)}` : ''}<br>${esc(d.toLocaleString(lang))}</div>
+  ${(m.attachments||[]).length ? `<p class="small">📎 ${t('attachments')}: ${m.attachments.map(esc).join(', ')}</p>` : ''}
+  <div class="mail-body" dir="auto" id="mbody">${t('loading')}</div>
+  <div class="row" style="margin-top:12px;flex-wrap:wrap">${admin ? `<button class="btn danger" id="mdel" title="${t('hide')}">${I.trash}</button>` : ''}<button class="btn" id="mev">${I.cal} ${t('toEvent')}</button><span class="grow"></span>
+   ${m.thread ? `<a class="btn" href="https://mail.google.com/mail/#all/${encodeURIComponent(m.thread)}" target="_blank" rel="noopener">${t('openGmail')}</a>` : ''}
+   <a class="btn primary" href="mailto:${/^[^\s<>"'?&#]+@[^\s<>"'?&#]+$/.test(fromAddr(m.from)) ? esc(fromAddr(m.from)) : ''}?subject=${encodeURIComponent(/^re:/i.test(m.subject||'') ? m.subject : 'Re: ' + (m.subject||''))}">${t('reply')}</a></div>`);
+ try { const full = await api(`/api/band/${S.band.id}/inbox/${encodeURIComponent(m.id)}`); $('#mbody', sh.el).innerHTML = linkify(full.text || ''); }
+ catch(x){ $('#mbody', sh.el).textContent = m.snippet || t('error'); }
+ $('#mev', sh.el).onclick = async () => { let text = ''; try { text = (await api(`/api/band/${S.band.id}/inbox/${encodeURIComponent(m.id)}`)).text || ''; } catch {}
+  sh.close(); editEvent(null, { title: m.subject || '', type: /gig|show|concert|optreden|boek|book|הופע/i.test(m.subject || '') ? 'gig' : 'other', notes: `${t('from')}: ${m.from}\n\n${text.slice(0, 2000)}` }); };
+ const del = $('#mdel', sh.el); if (del) del.onclick = async () => { if (!confirm(t('hide') + '?')) return;
+  try { await api(`/api/band/${S.band.id}/inbox/${encodeURIComponent(m.id)}`, { method:'DELETE' }); S.mail.messages = S.mail.messages.filter(x => x.id !== m.id); sh.close(); drawInbox(); } catch(x){ toast(t('error')); } };
+}
+
+// ---------- band members + push notifications ----------
+const bandMembers = () => { const m = S.data.band.members; return Array.isArray(m) ? m : String(m || '').split(/\n|,/).map(x => x.trim()).filter(Boolean); };
+const pushOK = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const b64uToBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+async function currentSub(){ try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch { return null; } }
+async function drawNotif(){
+ const box = $('#notifbox'); if (!box) return;
+ if (!pushOK()){ box.textContent = t('notifNo'); return; }
+ if (Notification.permission === 'denied'){ box.textContent = t('notifDenied'); return; }
+ const sub = await currentSub(), on = !!sub && Notification.permission === 'granted';
+ box.innerHTML = on ? `<p>${t('notifOnTxt')}</p><button class="btn sm" id="noff">${t('notifOff')}</button>` : `<button class="btn primary" id="non">${t('notifOn')}</button>`;
+ const non = $('#non'); if (non) non.onclick = async () => {
+  try { if (await Notification.requestPermission() !== 'granted') return drawNotif();
+   const { key } = await api('/api/push/key'); const reg = await navigator.serviceWorker.ready;
+   const s = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64uToBytes(key) });
+   await api(`/api/band/${S.band.id}/push`, { method:'POST', body:{ subscription: s.toJSON(), lang, test:true } }); drawNotif(); }
+  catch(x){ toast(t('error')); drawNotif(); } };
+ const noff = $('#noff'); if (noff) noff.onclick = async () => { const s = await currentSub(); if (s){ api(`/api/band/${S.band.id}/push`, { method:'DELETE', body:{ subscription: s.toJSON() } }).catch(()=>{}); await s.unsubscribe().catch(()=>{}); } drawNotif(); };
+}
+// keep this device's subscription filed under the current band, name and language
+async function refreshPush(){ if (!pushOK() || Notification.permission !== 'granted' || !S.band) return; const s = await currentSub();
+ if (s) api(`/api/band/${S.band.id}/push`, { method:'POST', body:{ subscription: s.toJSON(), lang } }).catch(()=>{}); }
 
 // ---------- settings ----------
 function renderSettings(){
@@ -650,11 +989,27 @@ function renderSettings(){
   <label class="f"><span>${t('yourName')}</span><input type="text" id="myname" value="${esc(me.name||'')}"></label>
   <label class="f"><span>${t('language')}</span>${langSeg()}</label>
   <div class="row" style="flex-wrap:wrap"><button class="btn" id="exp">${t('export')}</button><label class="btn">${t('import')}<input type="file" id="imp" accept=".json,application/json" class="hidden"></label><span class="grow"></span><button class="btn danger" id="lo">${t('logout')}</button></div>
-  ${admin ? `<h3 style="margin-top:28px">${t('bands')}</h3><ul class="list" id="bl">${S.state.bands.map(b => `<li><span class="grow title" dir="auto">${esc(b.name)}</span><button class="btn sm" data-pw="${b.id}">${t('changePw')}</button></li>`).join('')}</ul>
+  <h3 style="margin-top:28px">${t('notifs')}</h3><div id="notifbox" class="muted small"></div>
+  <h3 style="margin-top:28px">${esc(S.data.band.name)}</h3>
+  <label class="f"><span>${t('membersLbl')}</span><textarea id="members" dir="auto" style="min-height:96px">${esc(bandMembers().join('\n'))}</textarea><span class="muted small" style="display:block;margin-top:4px">${t('membersHelp')}</span></label>
+  ${admin ? `<h3 style="margin-top:28px">${t('backups')}</h3><p class="muted small">${t('backupsHelp')}</p><ul class="list" id="bkl"><li class="muted small">${t('loading')}</li></ul>
+   <div class="row" style="margin-top:10px"><button class="btn" id="bknow">${t('backupNow')}</button></div>` : ''}
+  ${admin ? `<h3 style="margin-top:28px">${t('bands')}</h3><ul class="list" id="bl">${S.state.bands.map(b => `<li><span class="grow title" dir="auto">${esc(b.name)}</span><button class="btn sm" data-cal="${b.id}">${I.cal}</button><button class="btn sm" data-pw="${b.id}">${t('changePw')}</button></li>`).join('')}</ul>
    <div class="row" style="margin-top:10px;flex-wrap:wrap"><button class="btn" id="ab">${I.plus} ${t('addBand')}</button><button class="btn" id="apw">${t('adminPwChange')}</button></div>
    <h3 style="margin-top:28px">${t('appUpdate')}</h3><p class="muted small">${t('version')}: ${esc(S.state.version)} · ${S.state.custom ? t('customApp') : t('builtinApp')}</p>
    ${S.state.custom ? `<button class="btn sm" id="rv">${t('revert')}</button>` : ''}` : ''}`;
  bindLangSeg(render);
+ drawNotif();
+ $('#members').onchange = async e => { const members = e.target.value.split('\n').map(x => x.trim()).filter(Boolean);
+  try { await api(`/api/band/${S.band.id}/settings`, { method:'PUT', body:{ members } }); S.data.band.members = members; toast(t('saved')); } catch(x){ toast(t('error')); } };
+ if (admin){
+  const drawBk = async () => { const ul = $('#bkl'); if (!ul) return;
+   try { const r = await api(`/api/band/${S.band.id}/backups`);
+    ul.innerHTML = r.backups.length ? r.backups.map(b => `<li><span class="grow small">${esc(new Date(b.created).toLocaleString(lang, { dateStyle:'medium', timeStyle:'short' }))}</span><span class="muted small">${Math.max(1, Math.round(b.size / 1024))} KB</span><a class="btn sm" href="/api/band/${S.band.id}/backups/${b.id}" download>⬇</a></li>`).join('') : `<li class="muted small">${t('noBackups')}</li>`; }
+   catch(x){ ul.innerHTML = `<li class="muted small">${t('error')}</li>`; } };
+  drawBk();
+  $('#bknow').onclick = async () => { try { await api(`/api/band/${S.band.id}/backups`, { method:'POST' }); toast(t('saved')); drawBk(); } catch(x){ toast(t('error')); } };
+ }
  $('#myname').onchange = async e => { try { await api('/api/me', { method:'PUT', body:{ name: e.target.value } }); localStorage.setItem('myname', e.target.value); S.state.me.name = e.target.value.trim(); toast(t('saved')); } catch(x){ toast(t('error')); } };
  $('#lo').onclick = async () => { await api('/api/logout', { method:'POST' }).catch(()=>{}); localStorage.removeItem('state'); location.reload(); };
  $('#exp').onclick = () => { const blob = new Blob([JSON.stringify({ band:S.data.band.name, exported:new Date().toISOString(), songs:S.data.songs, setlists:S.data.setlists, events:S.data.events }, null, 1)], { type:'application/json' });
@@ -663,7 +1018,9 @@ function renderSettings(){
  if (!admin) return;
  const askPw = async (title, path, extra = {}) => { const p = prompt(title + ' — ' + t('newPw')); if (p == null) return; if (p.length < 4) return toast(t('minPw'));
   try { await api(path, { method: extra.method || 'PUT', body:{ password:p, ...extra.body } }); toast(t('saved')); return true; } catch(x){ toast(x.message === 'password_in_use' ? t('pwInUse') : t('error')); } };
- $('#bl').onclick = e => { const b = e.target.closest('[data-pw]'); if (b) askPw(S.state.bands.find(x => x.id === b.dataset.pw).name, '/api/admin/band/' + b.dataset.pw); };
+ $('#bl').onclick = async e => { const c = e.target.closest('[data-cal]');
+  if (c){ const cur = c.dataset.cal === S.band.id ? (S.data.band.calendarId || '') : ''; const v = prompt(t('calBtn') + ' — ' + t('calId'), cur); if (v != null) await setCalendarId(c.dataset.cal, v.trim()); return; }
+  const b = e.target.closest('[data-pw]'); if (b) askPw(S.state.bands.find(x => x.id === b.dataset.pw).name, '/api/admin/band/' + b.dataset.pw); };
  $('#apw').onclick = () => askPw(t('adminPwChange'), '/api/admin/password');
  $('#ab').onclick = async () => { const n = prompt(t('bandName')); if (!n || !n.trim()) return; if (await askPw(n, '/api/admin/band', { method:'POST', body:{ name:n } })) { S.state = await api('/api/state'); render(); } };
  const rv = $('#rv'); if (rv) rv.onclick = async () => { if (!confirm(t('revert') + '?')) return; await api('/api/admin/app', { method:'DELETE' }); location.reload(); };

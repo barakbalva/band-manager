@@ -1,10 +1,11 @@
-// Band Manager — Cloudflare Worker (backend + built-in frontend)
+// BandBase — Cloudflare Worker (backend + built-in frontend)
 // Needs one D1 binding named DB. Tables are created automatically.
 // The frontend HTML can be replaced at runtime by the admin (self-update),
 // so most changes never need a new paste into Cloudflare.
 
 const VERSION = '__VERSION__';
 const APP_HTML = __APP_HTML__;
+const ICONS = __ICONS__; // band logo PNGs (base64), filled in by build.py from src/icons
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`,
@@ -12,21 +13,30 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, band TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, updated INTEGER, by TEXT)`,
   `CREATE INDEX IF NOT EXISTS items_band ON items(band, kind)`,
   `CREATE TABLE IF NOT EXISTS live (band TEXT PRIMARY KEY, data TEXT, updated INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS mail (id TEXT NOT NULL, band TEXT NOT NULL, data TEXT NOT NULL, received INTEGER, PRIMARY KEY (band, id))`,
+  `CREATE INDEX IF NOT EXISTS mail_band ON mail(band, received)`,
+  `CREATE TABLE IF NOT EXISTS avail (band TEXT NOT NULL, event TEXT NOT NULL, member TEXT NOT NULL, status TEXT NOT NULL, updated INTEGER, PRIMARY KEY (band, event, member))`,
+  `CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, band TEXT NOT NULL, created INTEGER, size INTEGER, data TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS backups_band ON backups(band, created)`,
+  `CREATE TABLE IF NOT EXISTS push (endpoint TEXT PRIMARY KEY, band TEXT NOT NULL, member TEXT, lang TEXT, keys TEXT NOT NULL, created INTEGER)`,
 ];
+const BACKUPS_KEPT = 12;
 let schemaReady = false;
 const KINDS = new Set(['song', 'setlist', 'event']);
 const SESSION_DAYS = 180;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       if (!env.DB) return new Response(noDbPage(), { status: 500, headers: { 'content-type': 'text/html; charset=utf-8' } });
-      if (!schemaReady) { await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s))); schemaReady = true; }
+      await ensureSchema(env);
       const url = new URL(request.url);
       const p = url.pathname;
-      if (p.startsWith('/api/')) return await api(request, env, url);
+      if (p.startsWith('/api/')) return await api(request, env, url, ctx);
       if (p === '/sw.js') return new Response(SW_JS, { headers: { 'content-type': 'text/javascript', 'cache-control': 'no-store' } });
       if (p === '/manifest.webmanifest') return json(MANIFEST, 200, { 'content-type': 'application/manifest+json' });
+      const ic = { '/apple-touch-icon.png': 180, '/icon-192.png': 192, '/icon-512.png': 512 }[p];
+      if (ic) return new Response(Uint8Array.from(atob(ICONS[ic]), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } });
       if (p === '/icon.svg') return new Response(ICON_SVG, { headers: { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' } });
       // a self-updated page is used only while it matches the pasted Worker version
       const custom = (await kvGet(env, 'app_base')) === VERSION ? await kvGet(env, 'app_html') : null;
@@ -35,10 +45,18 @@ export default {
       return json({ error: 'server', detail: String(e && e.message || e) }, 500);
     }
   },
+  // weekly backup of every band (cron in wrangler.toml)
+  async scheduled(event, env, ctx) {
+    await ensureSchema(env);
+    const { results } = await env.DB.prepare('SELECT id FROM bands').all();
+    for (const r of results) await storeBackup(env, r.id);
+  },
 };
+async function ensureSchema(env) { if (!schemaReady) { await env.DB.batch(SCHEMA.map(s => env.DB.prepare(s))); schemaReady = true; } }
 
 // ---------- API ----------
-async function api(req, env, url) {
+async function api(req, env, url, ctx) {
+  const later = pr => { if (ctx && ctx.waitUntil) ctx.waitUntil(pr.catch(() => {})); else pr.catch(() => {}); };
   const p = url.pathname.replace(/\/+$/, '');
   const m = req.method;
   const me = await readSession(req, env);
@@ -73,6 +91,41 @@ async function api(req, env, url) {
     return json({ error: 'wrong_password' }, 401);
   }
 
+  // Gmail → app: the Apps Script in the band's Gmail posts new messages here with the band's inbox token
+  const ib = p.match(/^\/api\/inbox\/([\w-]+)$/);
+  if (ib && m === 'POST') {
+    const row = await env.DB.prepare('SELECT data FROM bands WHERE id=?').bind(ib[1]).first();
+    const want = row && parse(row.data).inboxTokenHash;
+    const got = req.headers.get('x-inbox-token') || '';
+    if (!want || !got || !safeEq(await sha256(got), want)) { await new Promise(r => setTimeout(r, 400)); return json({ error: 'auth' }, 401); }
+    const b = await body(req);
+    const stmts = [], fresh = [];
+    for (const x of (Array.isArray(b.messages) ? b.messages : []).slice(0, 100)) {
+      if (!x || !/^[\w-]{1,64}$/.test(x.id || '')) continue;
+      const date = isNaN(new Date(x.date)) ? Date.now() : +new Date(x.date);
+      const str = (v, n) => String(v || '').slice(0, n);
+      const data = { thread: /^[\w-]{1,64}$/.test(x.thread || '') ? x.thread : '', from: str(x.from, 300), to: str(x.to, 1000), cc: str(x.cc, 1000),
+        subject: str(x.subject, 500), date, text: str(x.text, 60000), attachments: (Array.isArray(x.attachments) ? x.attachments : []).slice(0, 30).map(a => str(a, 200)) };
+      stmts.push(env.DB.prepare('INSERT INTO mail (id,band,data,received) VALUES (?,?,?,?) ON CONFLICT(band,id) DO NOTHING').bind(x.id, ib[1], JSON.stringify(data), date)); fresh.push(data);
+    }
+    let added = 0, firstNew = null;
+    for (let i = 0; i < stmts.length; i += 50) {
+      const res = await env.DB.batch(stmts.slice(i, i + 50));
+      res.forEach((r, j) => { if (r.meta && r.meta.changes) { added++; if (!firstNew) firstNew = fresh[i + j]; } });
+    }
+    if (added) later(notify(env, ib[1], { kind: 'mail', n: added, subject: firstNew.subject, from: firstNew.from, tab: 'inbox' }));
+    return json({ ok: true, count: stmts.length, added });
+  }
+  // Gmail script → Google Drive: a fresh backup of the band, fetched with the same inbox token
+  const bk = p.match(/^\/api\/inbox\/([\w-]+)\/backup$/);
+  if (bk && m === 'GET') {
+    const row = await env.DB.prepare('SELECT data FROM bands WHERE id=?').bind(bk[1]).first();
+    const want = row && parse(row.data).inboxTokenHash;
+    const got = req.headers.get('x-inbox-token') || '';
+    if (!want || !got || !safeEq(await sha256(got), want)) { await new Promise(r => setTimeout(r, 400)); return json({ error: 'auth' }, 401); }
+    return json(await snapshot(env, bk[1]));
+  }
+
   if (p === '/api/logout' && m === 'POST') return json({ ok: true }, 200, { 'set-cookie': cookie('', 0) });
 
   if (!me) return json({ error: 'auth' }, 401);
@@ -81,6 +134,8 @@ async function api(req, env, url) {
     const b = await body(req);
     return withSession(env, { ...me, n: clean(b.name || '').slice(0, 40) }, { ok: true });
   }
+
+  if (p === '/api/push/key' && m === 'GET') return json({ key: (await vapid(env)).pub });
 
   // ----- admin -----
   if (p.startsWith('/api/admin/')) {
@@ -93,6 +148,14 @@ async function api(req, env, url) {
       await env.DB.prepare('INSERT INTO bands (id,name,pw,data,created) VALUES (?,?,?,?,?)').bind(id, clean(b.name), await hashPw(b.password), '{}', Date.now()).run();
       return json({ ok: true, id });
     }
+    let tm = p.match(/^\/api\/admin\/band\/([\w-]+)\/inbox-token$/);
+    if (tm && m === 'POST') {
+      const row = await env.DB.prepare('SELECT data FROM bands WHERE id=?').bind(tm[1]).first();
+      if (!row) return json({ error: 'not_found' }, 404);
+      const token = b64u(crypto.getRandomValues(new Uint8Array(24)));
+      await env.DB.prepare('UPDATE bands SET data=? WHERE id=?').bind(JSON.stringify({ ...parse(row.data), inboxTokenHash: await sha256(token) }), tm[1]).run();
+      return json({ ok: true, token, url: `${url.origin}/api/inbox/${tm[1]}` });
+    }
     let mm = p.match(/^\/api\/admin\/band\/([\w-]+)$/);
     if (mm && m === 'PUT') {
       const b = await body(req);
@@ -101,6 +164,13 @@ async function api(req, env, url) {
         if (!okPw(b.password)) return json({ error: 'invalid' }, 400);
         if (await pwInUse(env, b.password, mm[1])) return json({ error: 'password_in_use' }, 409);
         await env.DB.prepare('UPDATE bands SET pw=? WHERE id=?').bind(await hashPw(b.password), mm[1]).run();
+      }
+      if ('calendarId' in b) {
+        const cid = String(b.calendarId || '').trim();
+        if (cid && !/^[\w.+-]+@[\w.-]+$/.test(cid)) return json({ error: 'invalid' }, 400);
+        const row = await env.DB.prepare('SELECT data FROM bands WHERE id=?').bind(mm[1]).first();
+        if (!row) return json({ error: 'not_found' }, 404);
+        await env.DB.prepare('UPDATE bands SET data=? WHERE id=?').bind(JSON.stringify({ ...parse(row.data), calendarId: cid }), mm[1]).run();
       }
       return json({ ok: true });
     }
@@ -135,7 +205,8 @@ async function api(req, env, url) {
 
     if (rest === '' && m === 'GET') {
       const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
-      const out = { band: { id: row.id, name: row.name, ...parse(row.data) }, songs: [], setlists: [], events: [] };
+      const { inboxTokenHash, ...bdata } = parse(row.data);
+      const out = { band: { id: row.id, name: row.name, ...bdata, inboxOn: !!inboxTokenHash }, songs: [], setlists: [], events: [] };
       for (const r of results) out[r.kind + 's'].push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
       return json(out);
     }
@@ -158,6 +229,13 @@ async function api(req, env, url) {
       const now = Date.now();
       await env.DB.prepare('INSERT INTO items (id,band,kind,data,updated,by) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated=excluded.updated, by=excluded.by')
         .bind(id, band, b.kind, data, now, me.n || '').run();
+      // a setlist is saved on every edit: tell the band at most once per 30 minutes per setlist
+      if (b.kind === 'setlist') later((async () => {
+        const k = 'pushsl:' + id, last = +(await kvGet(env, k) || 0);
+        if (now - last < 30 * 60e3) return;
+        await kvSet(env, k, String(now));
+        await notify(env, band, { kind: 'setlist', name: String(b.data.name || ''), by: me.n || '', tab: 'setlists' }, me.n);
+      })());
       return json({ ok: true, id, updated: now });
     }
     let im = rest.match(/^\/item\/([\w-]+)$/);
@@ -176,6 +254,97 @@ async function api(req, env, url) {
         const now = Date.now();
         await env.DB.prepare('INSERT INTO live (band,data,updated) VALUES (?,?,?) ON CONFLICT(band) DO UPDATE SET data=excluded.data, updated=excluded.updated').bind(band, JSON.stringify(data), now).run();
         return json({ ok: true, updated: now });
+      }
+    }
+    // ----- band inbox (filled by the Gmail script) -----
+    if (rest === '/inbox' && m === 'GET') {
+      const { results } = await env.DB.prepare("SELECT id,data FROM mail WHERE band=? AND json_extract(data,'$.hidden') IS NULL ORDER BY received DESC LIMIT 300").bind(band).all();
+      return json({ on: !!parse(row.data).inboxTokenHash, messages: results.map(r => { const d = parse(r.data); const { text, ...head } = d;
+        return { id: r.id, ...head, snippet: String(text || '').replace(/\s+/g, ' ').trim().slice(0, 160) }; }) });
+    }
+    const mi = rest.match(/^\/inbox\/([\w-]+)$/);
+    if (mi && m === 'GET') {
+      const r = await env.DB.prepare('SELECT id,data FROM mail WHERE band=? AND id=?').bind(band, mi[1]).first();
+      return r ? json({ id: r.id, ...parse(r.data) }) : json({ error: 'not_found' }, 404);
+    }
+    if (mi && m === 'DELETE') {
+      // kept as hidden, so the Gmail script's overlap does not bring it back
+      await env.DB.prepare("UPDATE mail SET data=json_set(data,'$.hidden',1) WHERE band=? AND id=?").bind(band, mi[1]).run();
+      return json({ ok: true });
+    }
+    // ----- availability per calendar event (who can make it) -----
+    if (rest === '/avail' && m === 'PUT') {
+      const b = await body(req);
+      const name = clean(me.n || '').slice(0, 40);
+      if (!name) return json({ error: 'name_required' }, 400);
+      if (!/^[\w-]{1,200}$/.test(b.event || '')) return json({ error: 'invalid' }, 400);
+      if (!b.status) await env.DB.prepare('DELETE FROM avail WHERE band=? AND event=? AND member=?').bind(band, b.event, name).run();
+      else if (['yes', 'no', 'maybe'].includes(b.status))
+        await env.DB.prepare('INSERT INTO avail (band,event,member,status,updated) VALUES (?,?,?,?,?) ON CONFLICT(band,event,member) DO UPDATE SET status=excluded.status, updated=excluded.updated').bind(band, b.event, name, b.status, Date.now()).run();
+      else return json({ error: 'invalid' }, 400);
+      return json({ ok: true });
+    }
+    // ----- backups (admin) -----
+    if (rest === '/backups' || rest.startsWith('/backups/')) {
+      if (me.r !== 'admin') return json({ error: 'forbidden' }, 403);
+      if (rest === '/backups' && m === 'GET') {
+        const { results } = await env.DB.prepare('SELECT id,created,size FROM backups WHERE band=? ORDER BY created DESC').bind(band).all();
+        return json({ backups: results });
+      }
+      if (rest === '/backups' && m === 'POST') return json({ ok: true, ...(await storeBackup(env, band)) });
+      const bm2 = rest.match(/^\/backups\/([\w-]+)$/);
+      if (bm2 && m === 'GET') {
+        const r = await env.DB.prepare('SELECT data,created FROM backups WHERE band=? AND id=?').bind(band, bm2[1]).first();
+        if (!r) return json({ error: 'not_found' }, 404);
+        return new Response(r.data, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
+          'content-disposition': `attachment; filename="${row.name.replace(/[^\w-]+/g, '_')}-backup-${new Date(r.created).toISOString().slice(0, 10)}.json"` } });
+      }
+    }
+    // ----- push notifications: this device's subscription -----
+    if (rest === '/push' && (m === 'POST' || m === 'DELETE')) {
+      const b = await body(req);
+      const sub = b.subscription || {};
+      if (!/^https:\/\/[^\s]{10,800}$/.test(sub.endpoint || '')) return json({ error: 'invalid' }, 400);
+      if (m === 'DELETE') { await env.DB.prepare('DELETE FROM push WHERE endpoint=?').bind(sub.endpoint).run(); return json({ ok: true }); }
+      const keys = sub.keys || {};
+      if (!/^[\w-]{20,200}$/.test(keys.p256dh || '') || !/^[\w-]{10,100}$/.test(keys.auth || '')) return json({ error: 'invalid' }, 400);
+      await env.DB.prepare('INSERT INTO push (endpoint,band,member,lang,keys,created) VALUES (?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET band=excluded.band, member=excluded.member, lang=excluded.lang, keys=excluded.keys')
+        .bind(sub.endpoint, band, clean(me.n || '').slice(0, 40), ['he', 'en', 'nl'].includes(b.lang) ? b.lang : 'en', JSON.stringify({ p256dh: keys.p256dh, auth: keys.auth }), Date.now()).run();
+      if (b.test) later(sendPush(env, { endpoint: sub.endpoint, keys }, { title: 'BandBase', body: PUSH_TEXT[b.lang in PUSH_TEXT ? b.lang : 'en'].test, tab: 'settings' }));
+      return json({ ok: true });
+    }
+    // ----- Google Calendar (two-way, through a service account the band calendar is shared with) -----
+    if (rest === '/cal' || rest.startsWith('/cal/')) {
+      const sa = saKey(env);
+      const calId = parse(row.data).calendarId || '';
+      if (!sa || !calId) return json({ configured: false, hasKey: !!sa, saEmail: sa ? sa.client_email : null, calendarId: calId });
+      const base = `${env.GCAL_BASE || 'https://www.googleapis.com/calendar/v3'}/calendars/${encodeURIComponent(calId)}/events`;
+      const em = rest.match(/^\/cal\/([\w-]+)$/);
+      if (rest === '/cal' && m === 'GET') {
+        const q = new URLSearchParams({ singleEvents: 'true', orderBy: 'startTime', maxResults: '250',
+          timeMin: isoOr(url.searchParams.get('from'), Date.now() - 864e5), timeMax: isoOr(url.searchParams.get('to'), Date.now() + 365 * 864e5) });
+        const r = await gcal(env, sa, `${base}?${q}`);
+        if (r.error) return json(r, 502);
+        const evs = (r.items || []).filter(e => e.status !== 'cancelled').map(fromG);
+        const { results: av } = await env.DB.prepare('SELECT event,member,status FROM avail WHERE band=?').bind(band).all();
+        const byEv = {}; for (const a of av) (byEv[a.event] = byEv[a.event] || {})[a.member] = a.status;
+        for (const e of evs) e.avail = byEv[e.id] || {};
+        return json({ configured: true, saEmail: sa.client_email, calendarId: calId, timeZone: r.timeZone || '', events: evs });
+      }
+      if ((rest === '/cal' && m === 'POST') || (em && m === 'PUT')) {
+        const ev = toG(await body(req), me);
+        if (!ev) return json({ error: 'invalid' }, 400);
+        const r = await gcal(env, sa, em ? `${base}/${em[1]}` : base, { method: em ? 'PATCH' : 'POST',
+          // nulls clear the other start/end form on PATCH (timed ↔ all-day); a new event just leaves them out
+          body: JSON.stringify(ev, em ? null : (k, v) => v === null ? undefined : v) });
+        if (r.error) return json(r, 502);
+        const out = fromG(r);
+        later(notify(env, band, { kind: em ? 'evChanged' : 'evNew', type: out.type, title: out.title, date: out.date, start: out.start, by: me.n || '', tab: 'calendar' }, me.n));
+        return json({ ok: true, event: out });
+      }
+      if (em && m === 'DELETE') {
+        const r = await gcal(env, sa, `${base}/${em[1]}`, { method: 'DELETE' });
+        return r.error && r.status !== 410 ? json(r, 502) : json({ ok: true });
       }
     }
     if (rest === '/import' && m === 'POST') {
@@ -210,7 +379,157 @@ async function pwInUse(env, pw, exceptBand) {
   return false;
 }
 
+// ---------- backups ----------
+// same shape as the app's "Export backup", so "Import backup" restores it
+async function snapshot(env, band) {
+  const row = await env.DB.prepare('SELECT id,name,data FROM bands WHERE id=?').bind(band).first();
+  const { inboxTokenHash, ...bdata } = parse(row && row.data);
+  const out = { band: row ? row.name : '', bandInfo: bdata, exported: new Date().toISOString(), songs: [], setlists: [], events: [] };
+  const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
+  for (const r of results) (out[r.kind + 's'] || []).push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
+  return out;
+}
+async function storeBackup(env, band) {
+  const data = JSON.stringify(await snapshot(env, band)), id = newId(), now = Date.now();
+  await env.DB.prepare('INSERT INTO backups (id,band,created,size,data) VALUES (?,?,?,?,?)').bind(id, band, now, data.length, data).run();
+  await env.DB.prepare('DELETE FROM backups WHERE band=? AND id NOT IN (SELECT id FROM backups WHERE band=? ORDER BY created DESC LIMIT ?)').bind(band, band, BACKUPS_KEPT).run();
+  return { id, created: now, size: data.length };
+}
+
+// ---------- push notifications (Web Push: VAPID + aes128gcm, RFC 8291/8292) ----------
+const PUSH_TEXT = {
+  en: { test: 'Notifications are on.', mail: n => n > 1 ? `${n} new emails` : 'New email', setlist: 'Setlist updated', evNew: { rehearsal: 'New rehearsal', gig: 'New gig', other: 'New event' }, evChanged: 'Event changed', by: 'by' },
+  nl: { test: 'Meldingen staan aan.', mail: n => n > 1 ? `${n} nieuwe mails` : 'Nieuwe mail', setlist: 'Setlist bijgewerkt', evNew: { rehearsal: 'Nieuwe repetitie', gig: 'Nieuw optreden', other: 'Nieuwe afspraak' }, evChanged: 'Afspraak gewijzigd', by: 'door' },
+  he: { test: 'ההתראות פועלות.', mail: n => n > 1 ? `${n} מיילים חדשים` : 'מייל חדש', setlist: 'הסט־ליסט עודכן', evNew: { rehearsal: 'חזרה חדשה', gig: 'הופעה חדשה', other: 'אירוע חדש' }, evChanged: 'אירוע השתנה', by: 'ע״י' },
+};
+function pushMessage(lang, x) {
+  const L = PUSH_TEXT[lang] || PUSH_TEXT.en;
+  const by = x.by ? ` (${L.by} ${x.by})` : '';
+  if (x.kind === 'mail') return { title: L.mail(x.n), body: [x.from && String(x.from).replace(/\s*<[^>]*>/, ''), x.subject].filter(Boolean).join(': ') };
+  if (x.kind === 'setlist') return { title: L.setlist, body: x.name + by };
+  const d = x.date ? new Date(x.date + 'T12:00').toLocaleDateString(lang === 'he' ? 'he-IL' : lang, { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+  return { title: x.kind === 'evNew' ? (L.evNew[x.type] || L.evNew.other) : L.evChanged, body: `${x.title} · ${d}${x.start ? ' ' + x.start : ''}${by}` };
+}
+// everyone in the band except the person who made the change
+async function notify(env, band, x, exceptMember) {
+  const { results } = await env.DB.prepare('SELECT endpoint,member,lang,keys FROM push WHERE band=?').bind(band).all();
+  await Promise.all(results.filter(r => !exceptMember || r.member !== exceptMember).map(r =>
+    sendPush(env, { endpoint: r.endpoint, keys: parse(r.keys) }, { ...pushMessage(r.lang, x), tab: x.tab })));
+}
+async function vapid(env) {
+  let v = parse(await kvGet(env, 'vapid'));
+  if (!v.pub) {
+    const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    v = { pub: b64u(await crypto.subtle.exportKey('raw', kp.publicKey)), jwk: await crypto.subtle.exportKey('jwk', kp.privateKey) };
+    await kvSet(env, 'vapid', JSON.stringify(v));
+  }
+  return v;
+}
+const hkdf = async (salt, ikm, info, bytes) => new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info },
+  await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']), bytes * 8));
+const cat = (...a) => { const o = new Uint8Array(a.reduce((n, x) => n + x.length, 0)); let i = 0; for (const x of a) { o.set(x, i); i += x.length; } return o; };
+async function sendPush(env, sub, msg) {
+  try {
+    const v = await vapid(env), aud = new URL(sub.endpoint).origin;
+    const seg = o => b64u(enc.encode(JSON.stringify(o)));
+    const unsigned = seg({ typ: 'JWT', alg: 'ES256' }) + '.' + seg({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: 'https://bands.barakbalva.workers.dev' });
+    const sk = await crypto.subtle.importKey('jwk', v.jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+    const jwt = unsigned + '.' + b64u(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, sk, enc.encode(unsigned)));
+    // payload encryption (RFC 8291)
+    const uaPub = unb64u(sub.keys.p256dh), authSecret = unb64u(sub.keys.auth);
+    const eph = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+    const asPub = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey));
+    const uaKey = await crypto.subtle.importKey('raw', uaPub, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+    const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, eph.privateKey, 256));
+    const ikm = await hkdf(authSecret, shared, cat(enc.encode('WebPush: info\0'), uaPub, asPub), 32);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const cek = await hkdf(salt, ikm, enc.encode('Content-Encoding: aes128gcm\0'), 16);
+    const nonce = await hkdf(salt, ikm, enc.encode('Content-Encoding: nonce\0'), 12);
+    const aes = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aes, cat(enc.encode(JSON.stringify(msg)), new Uint8Array([2]))));
+    const head = new Uint8Array(21); head.set(salt); new DataView(head.buffer).setUint32(16, 4096); head[20] = 65;
+    const r = await fetch(sub.endpoint, { method: 'POST', body: cat(head, asPub, ct), headers: {
+      authorization: `vapid t=${jwt}, k=${v.pub}`, 'content-encoding': 'aes128gcm', 'content-type': 'application/octet-stream', ttl: '86400', urgency: 'normal' } });
+    if (r.status === 404 || r.status === 410) await env.DB.prepare('DELETE FROM push WHERE endpoint=?').bind(sub.endpoint).run();
+    return r.status;
+  } catch (e) { return 0; }
+}
+
+// ---------- Google Calendar ----------
+// GOOGLE_SA_KEY is a Worker secret holding the service account's JSON key (wrangler secret put GOOGLE_SA_KEY < key.json)
+function saKey(env) {
+  try { const k = JSON.parse(env.GOOGLE_SA_KEY || ''); return k.client_email && k.private_key ? k : null; } catch { return null; }
+}
+let gTok = null;
+async function gToken(env, sa) {
+  if (gTok && gTok.email === sa.client_email && gTok.exp > Date.now() + 60_000) return gTok.t;
+  const now = Math.floor(Date.now() / 1000);
+  const seg = o => b64u(enc.encode(JSON.stringify(o)));
+  const unsigned = seg({ alg: 'RS256', typ: 'JWT' }) + '.' + seg({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/calendar', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 });
+  const der = Uint8Array.from(atob(sa.private_key.replace(/-----[^-]+-----|\s/g, '')), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const jwt = unsigned + '.' + b64u(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, enc.encode(unsigned)));
+  const r = await fetch(env.GTOKEN_URL || 'https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error('google_token: ' + (j.error_description || j.error || r.status));
+  gTok = { email: sa.client_email, t: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return gTok.t;
+}
+async function gcal(env, sa, url, opts = {}) {
+  let r;
+  try { r = await fetch(url, { ...opts, headers: { authorization: 'Bearer ' + await gToken(env, sa), 'content-type': 'application/json' } }); }
+  catch (e) { return { error: 'google', status: 0, detail: String(e.message || e) }; }
+  if (r.status === 204) return {};
+  const j = await r.json().catch(() => ({}));
+  return r.ok ? j : { error: 'google', status: r.status, detail: (j.error && j.error.message) || '' };
+}
+const isoOr = (v, fb) => { const d = new Date(v || NaN); return (isNaN(d) ? new Date(fb) : d).toISOString(); };
+const addDays = (d, n) => new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10) + n)).toISOString().slice(0, 10);
+const TYPES = ['rehearsal', 'gig', 'other'];
+const GIG_FIELDS = ['arrive', 'soundcheck', 'contact', 'fee', 'bring']; // gig details, kept in the event's private properties
+function guessType(s) {
+  s = String(s || '').toLowerCase();
+  return /rehears|repet|oefen|חזר/.test(s) ? 'rehearsal' : /gig|show|concert|optreden|הופע/.test(s) ? 'gig' : 'other';
+}
+// app event → Google event body
+function toG(b, me) {
+  const date = String(b.date || ''), title = String(b.title || '').trim().slice(0, 200);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !title) return null;
+  const tm = v => /^\d{2}:\d{2}$/.test(v || '') ? v : '';
+  const ev = { summary: title, location: String(b.location || '').slice(0, 300), description: String(b.notes || '').slice(0, 5000),
+    extendedProperties: { private: { bandType: TYPES.includes(b.type) ? b.type : 'other', by: String(me.n || '').slice(0, 40) } } };
+  for (const k of GIG_FIELDS) ev.extendedProperties.private[k] = String(b[k] || '').slice(0, 300);
+  const start = tm(b.start);
+  if (b.allDay || !start) {
+    const endDate = /^\d{4}-\d{2}-\d{2}$/.test(b.endDate || '') && b.endDate >= date ? b.endDate : date;
+    ev.start = { date, dateTime: null, timeZone: null }; ev.end = { date: addDays(endDate, 1), dateTime: null, timeZone: null };
+  } else {
+    const tz = /^[\w+/-]{1,60}$/.test(b.timeZone || '') ? b.timeZone : 'Europe/Amsterdam';
+    const mins = v => +v.slice(0, 2) * 60 + +v.slice(3, 5);
+    const s = mins(start); let e = tm(b.end) ? mins(b.end) : s + 120;
+    let endDate = date; if (e <= s) e += 1440; // an end before the start means it ends after midnight
+    if (e >= 1440) { endDate = addDays(date, Math.floor(e / 1440)); e %= 1440; }
+    const hm = x => String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0');
+    ev.start = { dateTime: `${date}T${start}:00`, timeZone: tz, date: null }; ev.end = { dateTime: `${endDate}T${hm(e)}:00`, timeZone: tz, date: null };
+  }
+  return ev;
+}
+// Google event → app event (times stay in the calendar's own time zone)
+function fromG(e) {
+  const s = e.start || {}, en = e.end || {}, allDay = !!s.date;
+  const p = e.extendedProperties && e.extendedProperties.private || {};
+  return { id: e.id, title: e.summary || '', allDay, date: allDay ? s.date : String(s.dateTime || '').slice(0, 10),
+    start: allDay ? '' : String(s.dateTime || '').slice(11, 16), end: allDay ? '' : String(en.dateTime || '').slice(11, 16),
+    endDate: allDay ? addDays(en.date || s.date, -1) : String(en.dateTime || '').slice(0, 10),
+    location: e.location || '', notes: e.description || '', type: TYPES.includes(p.bandType) ? p.bandType : guessType(e.summary),
+    by: p.by || '', link: e.htmlLink || '', recurring: !!e.recurringEventId,
+    ...Object.fromEntries(GIG_FIELDS.map(k => [k, p[k] || ''])) };
+}
+
 // ---------- helpers ----------
+async function sha256(s) { return b64u(await crypto.subtle.digest('SHA-256', enc.encode(s))); }
+function safeEq(a, b) { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; }
 function json(o, status = 200, headers = {}) {
   return new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } });
 }
@@ -272,11 +591,15 @@ function noDbPage() {
 <p dir="rtl" style="text-align:right">כמעט מוכן — צריך לחבר מסד נתונים D1 בשם המשתנה <b>DB</b> (Bindings → Add binding → D1).</p>`;
 }
 
-const MANIFEST = { name: 'Band Manager', short_name: 'Bands', start_url: '/', display: 'standalone', background_color: '#111114', theme_color: '#111114', icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml' }] };
+const MANIFEST = { name: 'BandBase', short_name: 'BandBase', start_url: '/', display: 'standalone', background_color: '#111114', theme_color: '#111114', icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }, { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }] };
 const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#111114"/><path d="M20 46V18l26-6v28" fill="none" stroke="#f5a524" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="46" r="6" fill="#f5a524"/><circle cx="41" cy="40" r="6" fill="#f5a524"/></svg>`;
 
 // Offline support: the app page and the last band data are cached, so stage mode keeps working without signal.
 const SW_JS = `const C='bands-v1';
+self.addEventListener('push',e=>{let d={};try{d=e.data.json();}catch(x){d={title:'BandBase',body:e.data?e.data.text():''};}
+ e.waitUntil(self.registration.showNotification(d.title||'BandBase',{body:d.body||'',icon:'/icon-192.png',badge:'/icon-192.png',data:{tab:d.tab||''}}));});
+self.addEventListener('notificationclick',e=>{e.notification.close();const u='/'+(e.notification.data&&e.notification.data.tab?'#'+e.notification.data.tab:'');
+ e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{for(const c of cs){if('focus' in c){c.navigate(u);return c.focus();}}return clients.openWindow(u);}));});
 self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);
