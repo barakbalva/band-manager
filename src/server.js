@@ -198,6 +198,20 @@ async function api(req, env, url, ctx) {
     if (b.password) { if (!okUserPw(b.password)) return json({ error: 'invalid' }, 400); await env.DB.prepare('UPDATE users SET pw=? WHERE id=?').bind(await hashPw(b.password), me.u).run(); }
     return json({ ok: true });
   }
+  if (p === '/api/account' && m === 'DELETE') {
+    if (!me.u) return json({ error: 'forbidden' }, 403);
+    const b = await body(req);
+    const u = await env.DB.prepare('SELECT pw FROM users WHERE id=?').bind(me.u).first();
+    if (!u || !(await checkPw(String(b.password || ''), u.pw))) { await new Promise(r => setTimeout(r, 600)); return json({ error: 'wrong_password' }, 401); }
+    const { results: mine } = await env.DB.prepare(`SELECT m.band, b.name, m.role,
+      (SELECT COUNT(*) FROM members x WHERE x.band=m.band) n, (SELECT COUNT(*) FROM members x WHERE x.band=m.band AND x.role='owner') owners
+      FROM members m JOIN bands b ON b.id=m.band WHERE m.user=?`).bind(me.u).all();
+    const blocked = mine.filter(r => r.role === 'owner' && r.owners < 2 && r.n > 1);
+    if (blocked.length) return json({ error: 'sole_owner', bands: blocked.map(r => r.name) }, 409);
+    for (const r of mine) if (r.n < 2) await deleteBand(env, r.band);
+    await env.DB.batch([env.DB.prepare('DELETE FROM members WHERE user=?').bind(me.u), env.DB.prepare('DELETE FROM resets WHERE user=?').bind(me.u), env.DB.prepare('DELETE FROM users WHERE id=?').bind(me.u)]);
+    return json({ ok: true }, 200, { 'set-cookie': cookie('', 0) });
+  }
   if (iv && m === 'POST') {
     if (!me.u) return json({ error: 'need_account' }, 403);
     const bnd = await inviteBand(env, iv[1]); if (!bnd) return json({ error: 'invite_invalid' }, 404);
@@ -323,6 +337,13 @@ async function api(req, env, url, ctx) {
     if (role === 'band' && parse(row.data).legacyOff) return json({ error: 'auth' }, 401); // shared password was switched off
     const manager = role === 'admin' || role === 'owner';
 
+    if (rest === '' && m === 'DELETE') {
+      if (!manager) return json({ error: 'forbidden' }, 403);
+      const b = await body(req);
+      if (String(b.name || '').trim() !== row.name) return json({ error: 'name_mismatch' }, 400);
+      await deleteBand(env, band);
+      return json({ ok: true });
+    }
     // ----- members, invite link, reset links (owners) -----
     if (rest === '/members' && m === 'GET') {
       const { results } = await env.DB.prepare('SELECT u.id,u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user WHERE m.band=? ORDER BY m.created').bind(band).all();
@@ -470,7 +491,7 @@ async function api(req, env, url, ctx) {
       const keys = sub.keys || {};
       if (!/^[\w-]{20,200}$/.test(keys.p256dh || '') || !/^[\w-]{10,100}$/.test(keys.auth || '')) return json({ error: 'invalid' }, 400);
       await env.DB.prepare('INSERT INTO push (endpoint,band,member,lang,keys,created) VALUES (?,?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET band=excluded.band, member=excluded.member, lang=excluded.lang, keys=excluded.keys')
-        .bind(sub.endpoint, band, clean(me.n || '').slice(0, 40), ['he', 'en', 'nl'].includes(b.lang) ? b.lang : 'en', JSON.stringify({ p256dh: keys.p256dh, auth: keys.auth }), Date.now()).run();
+        .bind(sub.endpoint, band, clean(me.n || '').slice(0, 40), ['he', 'en', 'nl', 'fr', 'de'].includes(b.lang) ? b.lang : 'en', JSON.stringify({ p256dh: keys.p256dh, auth: keys.auth }), Date.now()).run();
       if (b.test) later(sendPush(env, { endpoint: sub.endpoint, keys }, { title: 'BandBase', body: PUSH_TEXT[b.lang in PUSH_TEXT ? b.lang : 'en'].test, tab: 'settings' }));
       return json({ ok: true });
     }
@@ -537,6 +558,11 @@ async function bandRole(env, me, band) {
   if (me.u) { const r = await env.DB.prepare('SELECT role FROM members WHERE band=? AND user=?').bind(band, me.u).first(); return r ? r.role : null; }
   return me.r === 'band' && me.b === band ? 'band' : null;
 }
+// everything a band owns in D1 (events live in Google Calendar and stay there)
+async function deleteBand(env, band) {
+  await env.DB.batch(['items', 'live', 'mail', 'avail', 'backups', 'push', 'members'].map(t => env.DB.prepare(`DELETE FROM ${t} WHERE band=?`).bind(band))
+    .concat([env.DB.prepare('DELETE FROM bands WHERE id=?').bind(band)]));
+}
 async function addMember(env, band, user, role) {
   await env.DB.prepare('INSERT INTO members (band,user,role,created) VALUES (?,?,?,?) ON CONFLICT(band,user) DO NOTHING').bind(band, user, role, Date.now()).run();
 }
@@ -582,6 +608,8 @@ async function storeBackup(env, band) {
 const PUSH_TEXT = {
   en: { project: 'New project', dueToday: 'Deadline today', dueTomorrow: 'Deadline tomorrow', taskToday: 'Task due today', taskTomorrow: 'Task due tomorrow', test: 'Notifications are on.', mail: n => n > 1 ? `${n} new emails` : 'New email', setlist: 'Setlist updated', evNew: { rehearsal: 'New rehearsal', gig: 'New gig', other: 'New event' }, evChanged: 'Event changed', by: 'by' },
   nl: { project: 'Nieuw project', dueToday: 'Deadline vandaag', dueTomorrow: 'Deadline morgen', taskToday: 'Taak voor vandaag', taskTomorrow: 'Taak voor morgen', test: 'Meldingen staan aan.', mail: n => n > 1 ? `${n} nieuwe mails` : 'Nieuwe mail', setlist: 'Setlist bijgewerkt', evNew: { rehearsal: 'Nieuwe repetitie', gig: 'Nieuw optreden', other: 'Nieuwe afspraak' }, evChanged: 'Afspraak gewijzigd', by: 'door' },
+  fr: { project: 'Nouveau projet', dueToday: 'Échéance aujourd’hui', dueTomorrow: 'Échéance demain', taskToday: 'Tâche pour aujourd’hui', taskTomorrow: 'Tâche pour demain', test: 'Les notifications sont activées.', mail: n => n > 1 ? `${n} nouveaux mails` : 'Nouveau mail', setlist: 'Setlist mise à jour', evNew: { rehearsal: 'Nouvelle répétition', gig: 'Nouveau concert', other: 'Nouvel événement' }, evChanged: 'Événement modifié', by: 'par' },
+  de: { project: 'Neues Projekt', dueToday: 'Deadline heute', dueTomorrow: 'Deadline morgen', taskToday: 'Aufgabe für heute', taskTomorrow: 'Aufgabe für morgen', test: 'Benachrichtigungen sind an.', mail: n => n > 1 ? `${n} neue Mails` : 'Neue Mail', setlist: 'Setlist aktualisiert', evNew: { rehearsal: 'Neue Probe', gig: 'Neuer Auftritt', other: 'Neuer Termin' }, evChanged: 'Termin geändert', by: 'von' },
   he: { project: 'פרויקט חדש', dueToday: 'דדליין היום', dueTomorrow: 'דדליין מחר', taskToday: 'משימה להיום', taskTomorrow: 'משימה למחר', test: 'ההתראות פועלות.', mail: n => n > 1 ? `${n} מיילים חדשים` : 'מייל חדש', setlist: 'הסט־ליסט עודכן', evNew: { rehearsal: 'חזרה חדשה', gig: 'הופעה חדשה', other: 'אירוע חדש' }, evChanged: 'אירוע השתנה', by: 'ע״י' },
 };
 function pushMessage(lang, x) {

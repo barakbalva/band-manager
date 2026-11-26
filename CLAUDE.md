@@ -5,7 +5,7 @@ Barak writes in Hebrew; answer him in Hebrew.
 
 ## Layout
 - `src/server.js` – Cloudflare Worker: API + auth + D1. `__APP_HTML__` / `__VERSION__` are filled in by the build.
-- `src/app.html` – the whole frontend (one file, vanilla JS, HE/EN/NL, RTL aware).
+- `src/app.html` – the whole frontend (one file, vanilla JS, languages EN/NL/FR/DE/HE in `T`, RTL aware for HE). Every new UI string needs all 5 languages (also `PUSH_TEXT` in server.js).
 - `build.py` – builds `worker.js` (run `python3 build.py`).
 - `worker.js` – build output that gets deployed. Never edit by hand.
 - `src/icons/` – app icons (the BandBase shield logo `logo.jpg`, cropped by `make_icons.py`). `build.py` embeds the PNGs; served at `/apple-touch-icon.png`, `/icon-192.png`, `/icon-512.png`.
@@ -33,6 +33,7 @@ Chords are always stored in the ORIGINAL key; the app transposes on display with
 - Invite link: `/#invite=<bandId>.<random>`; band keeps `inviteHash` + `inviteExp` (14 days) in `bands.data`; a new link replaces the old. Owners: `/api/band/:id/invite` (POST/DELETE), `/members` (GET), `/members/:uid` (PUT role, DELETE), `/members/:uid/reset` (POST → `/#reset=<token>` link; no email sending yet).
 - Band owners may also use `PUT /api/admin/band/:id` (name, calendarId, shared password, `legacyOff`) and `POST /api/admin/band/:id/inbox-token`; backups too.
 - Legacy (still works until switched off): admin password (kv `admin`) and one shared password per band. `bands.data.legacyOff` blocks the band password and its sessions. Settings → "Make your personal account" (`POST /api/account/claim`, legacy admin only, once): creates the platform-admin user, owner of all bands.
+- Deleting (GDPR): `DELETE /api/account {password}` (blocked with `sole_owner` if you are the only owner of a band that has other members; bands where you are alone are deleted too); `DELETE /api/band/:id {name}` (owner/admin, must type the band name) → `deleteBand()` clears items, live, mail, avail, backups, push, members, band. Google Calendar events stay.
 - Admin control panel: Settings → "Control panel" (`GET /api/admin/overview`): every band, owners, members, songs, last change, calendar/mail/legacy flags.
 - Not done yet (step 3): password-reset emails, landing page, privacy policy/terms, payments. PBKDF2 is only 5000 iterations (Workers Free CPU limit) — raise on a paid plan.
 ## Google Calendar (two-way)
