@@ -325,7 +325,8 @@ const tabFromHash = () => { const h = location.hash.slice(1);
  if (h === 'admin'){ S.tab = 'settings'; S.goPanel = true; localStorage.setItem('tab', 'settings'); history.replaceState(null, '', location.pathname); return; } // direct link to the control panel
  if (TABS.includes(h)){ S.tab = h; localStorage.setItem('tab', h); history.replaceState(null, '', location.pathname); } };
 window.addEventListener('hashchange', () => { tabFromHash(); if (S.data && !stageCtx) render(); });
-(() => { const m = location.hash.match(/^#(invite|reset)=([\w.-]+)$/); if (m){ sessionStorage.setItem(m[1], m[2]); history.replaceState(null, '', location.pathname); } })();
+(() => { const m = location.hash.match(/^#(invite|reset)=([\w.-]+)$/); if (m){ sessionStorage.setItem(m[1], m[2]); history.replaceState(null, '', location.pathname); }
+ if (location.hash === '#signup'){ sessionStorage.setItem('signup', '1'); history.replaceState(null, '', location.pathname); } })(); // direct sign-up link: app.bandtwerp.com/#signup
 const isManager = () => S.state.me.role === 'admin' || !!(S.data && ['owner','admin'].includes(S.data.band.myRole));
 async function boot(){
  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
@@ -343,7 +344,11 @@ async function boot(){
   try { const r = await api('/api/invite/' + inv, { method:'POST' }); localStorage.setItem('band', r.band); S.state = await api('/api/state'); setTimeout(() => toast(t('joinedBand')), 300); }
   catch(e){ setTimeout(() => toast(t('inviteBad')), 300); }
  }
- if (!S.state.me) return renderLogin();
+ if (!S.state.me){
+  if (sessionStorage.getItem('signup')){ sessionStorage.removeItem('signup'); return S.state.signupOpen ? renderLogin(false, false, 'signup') : renderLogin('signup_closed'); }
+  return renderLogin();
+ }
+ sessionStorage.removeItem('signup');
  const bands = S.state.bands || [];
  if (!bands.length) return S.state.me.user ? renderNoBand() : renderLogin();
  const want = localStorage.getItem('band');
