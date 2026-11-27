@@ -62,7 +62,8 @@ Chords are always stored in the ORIGINAL key; the app transposes on display with
 - Availability: table `avail` (band, event = Google event id, member = login name, yes|no|maybe); returned inside the calendar GET as `event.avail`. Band roster for "no answer yet" = `bands.data.members` (Settings → band members).
 - Gig details (arrive, soundcheck, contact, fee, bring) live in the Google event's private properties (`GIG_FIELDS`). Mail tab has "Add to calendar" (prefills title/notes).
 - Web Push without any library (VAPID ES256 + RFC 8291 aes128gcm in `sendPush`); VAPID keys auto-made in kv `vapid`. Subscriptions in table `push` (with language). Sent on: event created/changed in the app, new mail ingested, setlist saved (max once per 30 min per setlist). Not for events made directly in Google. iPhone needs the home-screen app.
-- Songs: `practice` flag (chip + filter), YouTube search button, metronome click (Web Audio `Click`) in the editor and a "Click" pill in stage mode.
+- Songs: `practice` flag (chip + filter), YouTube search button, `sig` (time signature, empty = 4/4).
+- Click for in-ears (rebuilt 2026-11-27): `Click` schedules ticks on the audio clock (25 ms look-ahead pump), so tempo is exact; accent on beat 1 of `sig`, count-in with a higher tone. Settings in localStorage via `clickSettings()` (CK): volume, output L / both / R (StereoPanner – send the click to one side of the in-ear mix), count-in 0/1/2 bars, start mode auto (every song) / tap ▶ / tap = count-in only, sound beep/woodblock/high. Stage mode: "Click" pill arms it, ⚙ opens settings, big ▶/■ button next to the BPM, `K` key (pedal) toggles; the beat light follows the click. A running click survives redraws (font size etc.) and stops/changes on the next song. `navigator.audioSession.type = 'playback'` so iPhones play with the silent switch on (Safari 16.4+).
 
 ## Projects tab (built 2026-11-26)
 Social media / video projects. Stored in `items` as kind `project`:
