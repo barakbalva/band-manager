@@ -38,7 +38,7 @@ Chords are always stored in the ORIGINAL key; the app transposes on display with
 - Forgot password: `POST /api/forgot {email, lang}` sends a 2-hour reset link with `env.EMAIL.send()` (Cloudflare Email Service, needs Workers Paid + a `[[send_email]] name = "EMAIL"` binding in wrangler.toml + bandtwerp.com onboarded for sending; optional `MAIL_FROM` var, default no-reply@bandtwerp.com). Without the binding it answers `mailer:false` and the app tells people to ask a band owner for a reset link. Never reveals whether an email exists; max one mail per 5 min per address.
 - Languages: Hebrew is not offered in the switcher to the public (Barak's wish); shown for admins or when already selected / device is Hebrew.
 - The platform admin with a personal account sees only his own bands in the app (other bands only in the control panel; `bandRole` still grants admin access for support). Legacy admin password sessions still see all bands.
-- Admin control panel: Settings → "Control panel" (`GET /api/admin/overview`): every band, owners, members, songs, last change, calendar/mail/legacy flags.
+- Admin control panel: Settings → "Control panel", direct link **https://app.bandtwerp.com/#admin** (`GET /api/admin/overview`): every band, owners, members, songs, last change, calendar/mail/legacy flags.
 - Not done yet: turning on email sending (Workers Paid), public landing page on bandtwerp.com (blog later), payments. PBKDF2 is only 5000 iterations (Workers Free CPU limit) — raise on a paid plan.
 ## Google Calendar (two-way)
 - Calendar tab reads/writes the band's own Google Calendar through `/api/band/:id/cal` (GET list, POST, PUT/:eid, DELETE/:eid). Events are NOT stored in D1.
