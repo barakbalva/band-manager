@@ -292,7 +292,8 @@ async function api(req, env, url, ctx) {
         q('SELECT COUNT(*) n, MAX(created) last FROM users')]);
       const byBand = {}; for (const x of mem) (byBand[x.band] = byBand[x.band] || []).push(x);
       const it = {}; for (const x of items) it[x.band] = x;
-      return json({ users: users[0].n, lastUser: users[0].last, signupOpen: (await kvGet(env, 'signup_open')) === '1', legal: parse(await kvGet(env, 'legal')), mailer: !!env.EMAIL,
+      const loners = await q('SELECT name,email,created FROM users WHERE id NOT IN (SELECT user FROM members) ORDER BY created');
+      return json({ loners, users: users[0].n, lastUser: users[0].last, signupOpen: (await kvGet(env, 'signup_open')) === '1', legal: parse(await kvGet(env, 'legal')), mailer: !!env.EMAIL,
         bands: bands.map(b => { const ms = byBand[b.id] || [], d = parse(b.data), i = it[b.id] || {};
           return { id: b.id, name: b.name, created: b.created, members: ms.length, owners: ms.filter(x => x.role === 'owner').map(x => ({ name: x.name, email: x.email })),
             people: ms.map(x => ({ name: x.name, email: x.email, role: x.role, joined: x.created })), legacy: !d.legacyOff && b.pw !== '-',
@@ -401,6 +402,14 @@ async function api(req, env, url, ctx) {
       d.inviteHash = await sha256(token); d.inviteExp = Date.now() + INVITE_DAYS * 864e5;
       await env.DB.prepare('UPDATE bands SET data=? WHERE id=?').bind(JSON.stringify(d), band).run();
       return json({ ok: true, token, exp: d.inviteExp });
+    }
+    if (rest === '/members' && m === 'POST') {
+      if (!manager) return json({ error: 'forbidden' }, 403);
+      const b = await body(req);
+      const u = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(normEmail(b.email)).first();
+      if (!u) return json({ error: 'no_account' }, 404);
+      await addMember(env, band, u.id, 'member');
+      return json({ ok: true });
     }
     const mem = rest.match(/^\/members\/([\w-]+)(\/reset)?$/);
     if (mem) {
