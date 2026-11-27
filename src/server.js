@@ -337,7 +337,10 @@ async function api(req, env, url, ctx) {
         await env.DB.prepare('UPDATE bands SET pw=?, data=? WHERE id=?').bind(await hashPw(b.password), JSON.stringify({ ...parse(row && row.data), legacyOff: false }), mm[1]).run();
       }
       if ('calendarId' in b) {
-        const cid = String(b.calendarId || '').trim();
+        let cid = String(b.calendarId || '').trim();
+        // people often paste the "public URL" / embed code / iCal link instead of the ID: take the ID out of it
+        const src = cid.match(/[?&]src=([^&"'\s]+)/) || cid.match(/\/ical\/([^/]+)\//);
+        if (src) { try { cid = decodeURIComponent(src[1]); } catch (e) {} }
         if (cid && !/^[\w.+-]+@[\w.-]+$/.test(cid)) return json({ error: 'invalid' }, 400);
         const row = await env.DB.prepare('SELECT data FROM bands WHERE id=?').bind(mm[1]).first();
         if (!row) return json({ error: 'not_found' }, 404);
