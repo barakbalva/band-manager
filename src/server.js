@@ -599,7 +599,8 @@ async function api(req, env, url, ctx) {
 
 async function bandsFor(env, me) {
   let results;
-  if (me.r === 'admin') ({ results } = await env.DB.prepare('SELECT id,name,data,? role FROM bands ORDER BY created').bind('admin').all());
+  // the platform admin with a personal account only sees their own bands in the app (others' bands are listed in the control panel)
+  if (me.r === 'admin' && !me.u) ({ results } = await env.DB.prepare('SELECT id,name,data,? role FROM bands ORDER BY created').bind('admin').all());
   else if (me.u) ({ results } = await env.DB.prepare('SELECT b.id,b.name,b.data,m.role FROM members m JOIN bands b ON b.id=m.band WHERE m.user=? ORDER BY m.created').bind(me.u).all());
   else ({ results } = await env.DB.prepare("SELECT id,name,data,'band' role FROM bands WHERE id=?").bind(me.b).all());
   return results.filter(r => me.r !== 'band' || !parse(r.data).legacyOff).map(r => ({ id: r.id, name: r.name, color: parse(r.data).color || '', role: r.role }));
