@@ -69,6 +69,9 @@ Chords are always stored in the ORIGINAL key; the app transposes on display with
 - Songs: `practice` flag (chip + filter), YouTube search button, `sig` (time signature, empty = 4/4).
 - Click for in-ears (rebuilt 2026-11-27): `Click` schedules ticks on the audio clock (25 ms look-ahead pump), so tempo is exact; accent on beat 1 of `sig`, count-in with a higher tone. Settings in localStorage via `clickSettings()` (CK): volume, output L / both / R (StereoPanner – send the click to one side of the in-ear mix), count-in 0/1/2 bars, start mode auto (every song) / tap ▶ / tap = count-in only, sound beep/woodblock/high. Stage mode: "Click" pill arms it, ⚙ opens settings, big ▶/■ button next to the BPM, `K` key (pedal) toggles; the beat light follows the click. A running click survives redraws (font size etc.) and stops/changes on the next song. `navigator.audioSession.type = 'playback'` so iPhones play with the silent switch on (Safari 16.4+).
 
+## Tabs per band
+- Owners switch off tabs in Settings (board, calendar, projects, inbox) → `bands.data.tabsOff` via `PUT /api/band/:id/settings` (managers only). Used for the student bands (no calendar/mail).
+
 ## Projects tab (built 2026-11-26)
 Social media / video projects. Stored in `items` as kind `project`:
 `name, type (video|post|photo|other), status (idea|progress|editing|published), deadline (YYYY-MM-DD), owner, tasks: [{text, owner, date, done}], linkDrive, linkDraft, linkPub, songId, gigId (+gigTitle, gigDate cached), notes, inCal, calEventId`.

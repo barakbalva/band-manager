@@ -446,6 +446,7 @@ async function api(req, env, url, ctx) {
     if (rest === '/settings' && m === 'PUT') {
       const b = await body(req);
       const data = { ...parse(row.data), ...pick(b, ['color', 'members', 'notes']) };
+      if (manager && Array.isArray(b.tabsOff)) data.tabsOff = b.tabsOff.filter(x => ['board', 'calendar', 'projects', 'inbox'].includes(x)); // owners choose which tabs the band uses
       await env.DB.prepare('UPDATE bands SET data=? WHERE id=?').bind(JSON.stringify(data), band).run();
       return json({ ok: true });
     }
