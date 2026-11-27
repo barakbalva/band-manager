@@ -38,6 +38,8 @@ export default {
       await ensureSchema(env);
       const url = new URL(request.url);
       const p = url.pathname;
+      // the old workers.dev address only serves the API (Gmail script, old installs); people are sent to the real domain
+      if (url.hostname.endsWith('.workers.dev') && !p.startsWith('/api/') && env.APP_HOST !== '') return Response.redirect('https://' + (env.APP_HOST || 'app.bandtwerp.com') + p + url.search, 302);
       if (p.startsWith('/api/')) return await api(request, env, url, ctx);
       if (p === '/sw.js') return new Response(SW_JS, { headers: { 'content-type': 'text/javascript', 'cache-control': 'no-store' } });
       if (p === '/manifest.webmanifest') return json(MANIFEST, 200, { 'content-type': 'application/manifest+json' });

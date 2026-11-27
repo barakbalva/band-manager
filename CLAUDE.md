@@ -26,7 +26,7 @@ Tables are created automatically (`kv`, `bands`, `items`, `live`). Songs/setlist
 Chords are always stored in the ORIGINAL key; the app transposes on display with `shift`.
 
 ## Auth (personal accounts since 2026-11-26)
-- Live at **https://app.bandtwerp.com** (Custom Domain on the Worker, zone bandtwerp.com — note the t: Band + Antwerp) and still at bands.barakbalva.workers.dev. Cookies are per host.
+- Live at **https://app.bandtwerp.com** (Custom Domain on the Worker, zone bandtwerp.com — note the t: Band + Antwerp) and still at bands.barakbalva.workers.dev. Cookies are per host. Since 2026-11-27 every non-API page on *.workers.dev redirects (302) to app.bandtwerp.com (`APP_HOST` var overrides, empty string disables); `/api/*` keeps working there because Ctrl-V's Gmail script posts to the workers.dev URL.
 - Tables `users` (email unique, PBKDF2 pw, `admin` = platform admin), `members` (band, user, role owner|member), `resets` (SHA-256 of one-time reset token, 3 days).
 - Login: email + password (`POST /api/login {email,password}`), session `{r:'user', u}`; `readSession` loads the user each request (name, email, admin → `me.r='admin'`).
 - Sign-up `POST /api/signup`: with an invite token (joins as member) or, when admin switched "open sign-up" on (kv `signup_open`), with a new band name (becomes owner). `POST /api/bands` = signed-in user starts another band.
