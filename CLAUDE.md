@@ -71,6 +71,10 @@ Social media / video projects. Stored in `items` as kind `project`:
 - "Put the deadline in the band calendar" keeps one all-day event (`🎬 name`, type other) in Google Calendar; id in `calEventId`; removed when unticked or the project is deleted.
 - Push: new project (from the app); daily cron `0 6 * * *` → `remindDeadlines()` pushes for project deadlines and undone tasks due today/tomorrow (Europe/Brussels), once each (kv `due:...`).
 
+## Board + rehearsal plans (built 2026-11-27)
+- **Board** tab (first tab, default for new devices): items kind `post` = `{text, important, author, created, seen: [names]}`. Important posts sort first. "Seen ✓" toggles via `POST /api/band/:id/item/:id/seen` (server-side, so taps don't overwrite each other). Author or band owner can pin/delete. Unread dot on the tab: posts newer than localStorage `board:<bandId>` by someone else. Push on every new post (title "📌 Important" when flagged).
+- **Rehearsal plan**: items kind `plan` = `{eventId, date, start, title, goal, notes, blocks: [{min, text, songs: [songId]}]}`, one per rehearsal event (Google event id). Opened from the rehearsal's sheet in the Calendar ("📋 Rehearsal plan"); 📋 chip on planned rehearsals. Start time per block is computed from the event start; total vs. rehearsal length shown. "Play these songs" opens stage mode with the plan's songs. Push at most once per 30 min per plan.
+
 ## Ideas Barak has mentioned
 - Brainstorm songs: section chords filled 2026-11-26 (7 of 8; "In de maneschijn" is Barak's own arrangement, left as is). Verify by ear when they start learning them.
 - Plan: bandtwerp.com = blog about band gigs/projects; app.bandtwerp.com = Bandtwerp App for any band (free first, paid later).

@@ -28,7 +28,7 @@ const SCHEMA = [
 ];
 const BACKUPS_KEPT = 12;
 let schemaReady = false;
-const KINDS = new Set(['song', 'setlist', 'event', 'project']);
+const KINDS = new Set(['song', 'setlist', 'event', 'project', 'post', 'plan']);
 const SESSION_DAYS = 180;
 
 export default {
@@ -278,7 +278,7 @@ async function api(req, env, url, ctx) {
       const [bands, mem, items, users] = await Promise.all([
         q('SELECT id,name,data,created FROM bands ORDER BY created'),
         q('SELECT m.band,m.role,m.created,u.name,u.email FROM members m JOIN users u ON u.id=m.user ORDER BY m.created'),
-        q("SELECT band, SUM(kind='song') songs, SUM(kind='setlist') setlists, SUM(kind='project') projects, MAX(updated) last FROM items GROUP BY band"),
+        q("SELECT band, SUM(kind='song') songs, SUM(kind='setlist') setlists, SUM(kind='project') projects, SUM(kind='post') posts, MAX(updated) last FROM items GROUP BY band"),
         q('SELECT COUNT(*) n, MAX(created) last FROM users')]);
       const byBand = {}; for (const x of mem) (byBand[x.band] = byBand[x.band] || []).push(x);
       const it = {}; for (const x of items) it[x.band] = x;
@@ -417,7 +417,7 @@ async function api(req, env, url, ctx) {
     if (rest === '' && m === 'GET') {
       const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
       const { inboxTokenHash, inviteHash, ...bdata } = parse(row.data);
-      const out = { band: { id: row.id, name: row.name, ...bdata, inboxOn: !!inboxTokenHash, myRole: role }, songs: [], setlists: [], events: [], projects: [] };
+      const out = { band: { id: row.id, name: row.name, ...bdata, inboxOn: !!inboxTokenHash, myRole: role }, songs: [], setlists: [], events: [], projects: [], posts: [], plans: [] };
       for (const r of results) (out[r.kind + 's'] || []).push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
       return json(out);
     }
@@ -440,6 +440,14 @@ async function api(req, env, url, ctx) {
       const now = Date.now();
       await env.DB.prepare('INSERT INTO items (id,band,kind,data,updated,by) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated=excluded.updated, by=excluded.by')
         .bind(id, band, b.kind, data, now, me.n || '').run();
+      if (b.kind === 'post' && !b.id) later(notify(env, band, { kind: 'post', text: String(b.data.text || '').slice(0, 140), important: !!b.data.important, by: me.n || '', tab: 'board' }, me.n));
+      // a rehearsal plan is saved on every edit too: at most one push per 30 minutes per plan
+      if (b.kind === 'plan') later((async () => {
+        const k = 'pushpl:' + id, last = +(await kvGet(env, k) || 0);
+        if (now - last < 30 * 60e3) return;
+        await kvSet(env, k, String(now));
+        await notify(env, band, { kind: 'plan', name: String(b.data.title || ''), date: String(b.data.date || ''), by: me.n || '', tab: 'calendar' }, me.n);
+      })());
       if (b.kind === 'project' && !b.id) later(notify(env, band, { kind: 'project', name: String(b.data.name || ''), by: me.n || '', tab: 'projects' }, me.n));
       // a setlist is saved on every edit: tell the band at most once per 30 minutes per setlist
       if (b.kind === 'setlist') later((async () => {
@@ -449,6 +457,18 @@ async function api(req, env, url, ctx) {
         await notify(env, band, { kind: 'setlist', name: String(b.data.name || ''), by: me.n || '', tab: 'setlists' }, me.n);
       })());
       return json({ ok: true, id, updated: now });
+    }
+    // board post: "seen" (✓) is toggled on the server so two people tapping at once don't overwrite each other
+    const sm = rest.match(/^\/item\/([\w-]+)\/seen$/);
+    if (sm && m === 'POST') {
+      const it = await env.DB.prepare("SELECT data FROM items WHERE id=? AND band=? AND kind='post'").bind(sm[1], band).first();
+      if (!it) return json({ error: 'not_found' }, 404);
+      const name = clean(me.n || '').slice(0, 40); if (!name) return json({ error: 'need_name' }, 400);
+      const d = parse(it.data), seen = new Set(d.seen || []);
+      seen.has(name) ? seen.delete(name) : seen.add(name);
+      d.seen = [...seen];
+      await env.DB.prepare('UPDATE items SET data=? WHERE id=?').bind(JSON.stringify(d), sm[1]).run();
+      return json({ ok: true, seen: d.seen });
     }
     let im = rest.match(/^\/item\/([\w-]+)$/);
     if (im && m === 'DELETE') {
@@ -562,7 +582,7 @@ async function api(req, env, url, ctx) {
     if (rest === '/import' && m === 'POST') {
       const b = await body(req);
       const stmts = [];
-      for (const kind of ['song', 'setlist', 'event', 'project']) for (const it of (b[kind + 's'] || [])) {
+      for (const kind of ['song', 'setlist', 'event', 'project', 'post', 'plan']) for (const it of (b[kind + 's'] || [])) {
         if (!it || typeof it !== 'object') continue;
         const { id, updated, by, ...data } = it;
         stmts.push(env.DB.prepare('INSERT INTO items (id,band,kind,data,updated,by) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated=excluded.updated WHERE items.band=excluded.band')
@@ -629,7 +649,7 @@ async function pwInUse(env, pw, exceptBand) {
 async function snapshot(env, band) {
   const row = await env.DB.prepare('SELECT id,name,data FROM bands WHERE id=?').bind(band).first();
   const { inboxTokenHash, inviteHash, inviteExp, ...bdata } = parse(row && row.data);
-  const out = { band: row ? row.name : '', bandInfo: bdata, exported: new Date().toISOString(), songs: [], setlists: [], events: [], projects: [] };
+  const out = { band: row ? row.name : '', bandInfo: bdata, exported: new Date().toISOString(), songs: [], setlists: [], events: [], projects: [], posts: [], plans: [] };
   const { results } = await env.DB.prepare('SELECT id,kind,data,updated,by FROM items WHERE band=?').bind(band).all();
   for (const r of results) (out[r.kind + 's'] || []).push({ ...parse(r.data), id: r.id, updated: r.updated, by: r.by });
   return out;
@@ -643,11 +663,11 @@ async function storeBackup(env, band) {
 
 // ---------- push notifications (Web Push: VAPID + aes128gcm, RFC 8291/8292) ----------
 const PUSH_TEXT = {
-  en: { project: 'New project', dueToday: 'Deadline today', dueTomorrow: 'Deadline tomorrow', taskToday: 'Task due today', taskTomorrow: 'Task due tomorrow', test: 'Notifications are on.', mail: n => n > 1 ? `${n} new emails` : 'New email', setlist: 'Setlist updated', evNew: { rehearsal: 'New rehearsal', gig: 'New gig', other: 'New event' }, evChanged: 'Event changed', by: 'by' },
-  nl: { project: 'Nieuw project', dueToday: 'Deadline vandaag', dueTomorrow: 'Deadline morgen', taskToday: 'Taak voor vandaag', taskTomorrow: 'Taak voor morgen', test: 'Meldingen staan aan.', mail: n => n > 1 ? `${n} nieuwe mails` : 'Nieuwe mail', setlist: 'Setlist bijgewerkt', evNew: { rehearsal: 'Nieuwe repetitie', gig: 'Nieuw optreden', other: 'Nieuwe afspraak' }, evChanged: 'Afspraak gewijzigd', by: 'door' },
-  fr: { project: 'Nouveau projet', dueToday: 'Échéance aujourd’hui', dueTomorrow: 'Échéance demain', taskToday: 'Tâche pour aujourd’hui', taskTomorrow: 'Tâche pour demain', test: 'Les notifications sont activées.', mail: n => n > 1 ? `${n} nouveaux mails` : 'Nouveau mail', setlist: 'Setlist mise à jour', evNew: { rehearsal: 'Nouvelle répétition', gig: 'Nouveau concert', other: 'Nouvel événement' }, evChanged: 'Événement modifié', by: 'par' },
-  de: { project: 'Neues Projekt', dueToday: 'Deadline heute', dueTomorrow: 'Deadline morgen', taskToday: 'Aufgabe für heute', taskTomorrow: 'Aufgabe für morgen', test: 'Benachrichtigungen sind an.', mail: n => n > 1 ? `${n} neue Mails` : 'Neue Mail', setlist: 'Setlist aktualisiert', evNew: { rehearsal: 'Neue Probe', gig: 'Neuer Auftritt', other: 'Neuer Termin' }, evChanged: 'Termin geändert', by: 'von' },
-  he: { project: 'פרויקט חדש', dueToday: 'דדליין היום', dueTomorrow: 'דדליין מחר', taskToday: 'משימה להיום', taskTomorrow: 'משימה למחר', test: 'ההתראות פועלות.', mail: n => n > 1 ? `${n} מיילים חדשים` : 'מייל חדש', setlist: 'הסט־ליסט עודכן', evNew: { rehearsal: 'חזרה חדשה', gig: 'הופעה חדשה', other: 'אירוע חדש' }, evChanged: 'אירוע השתנה', by: 'ע״י' },
+  en: { post: 'New message', postImportant: '📌 Important', plan: 'Rehearsal plan', project: 'New project', dueToday: 'Deadline today', dueTomorrow: 'Deadline tomorrow', taskToday: 'Task due today', taskTomorrow: 'Task due tomorrow', test: 'Notifications are on.', mail: n => n > 1 ? `${n} new emails` : 'New email', setlist: 'Setlist updated', evNew: { rehearsal: 'New rehearsal', gig: 'New gig', other: 'New event' }, evChanged: 'Event changed', by: 'by' },
+  nl: { post: 'Nieuw bericht', postImportant: '📌 Belangrijk', plan: 'Repetitieplan', project: 'Nieuw project', dueToday: 'Deadline vandaag', dueTomorrow: 'Deadline morgen', taskToday: 'Taak voor vandaag', taskTomorrow: 'Taak voor morgen', test: 'Meldingen staan aan.', mail: n => n > 1 ? `${n} nieuwe mails` : 'Nieuwe mail', setlist: 'Setlist bijgewerkt', evNew: { rehearsal: 'Nieuwe repetitie', gig: 'Nieuw optreden', other: 'Nieuwe afspraak' }, evChanged: 'Afspraak gewijzigd', by: 'door' },
+  fr: { post: 'Nouveau message', postImportant: '📌 Important', plan: 'Plan de répétition', project: 'Nouveau projet', dueToday: 'Échéance aujourd’hui', dueTomorrow: 'Échéance demain', taskToday: 'Tâche pour aujourd’hui', taskTomorrow: 'Tâche pour demain', test: 'Les notifications sont activées.', mail: n => n > 1 ? `${n} nouveaux mails` : 'Nouveau mail', setlist: 'Setlist mise à jour', evNew: { rehearsal: 'Nouvelle répétition', gig: 'Nouveau concert', other: 'Nouvel événement' }, evChanged: 'Événement modifié', by: 'par' },
+  de: { post: 'Neue Nachricht', postImportant: '📌 Wichtig', plan: 'Probenplan', project: 'Neues Projekt', dueToday: 'Deadline heute', dueTomorrow: 'Deadline morgen', taskToday: 'Aufgabe für heute', taskTomorrow: 'Aufgabe für morgen', test: 'Benachrichtigungen sind an.', mail: n => n > 1 ? `${n} neue Mails` : 'Neue Mail', setlist: 'Setlist aktualisiert', evNew: { rehearsal: 'Neue Probe', gig: 'Neuer Auftritt', other: 'Neuer Termin' }, evChanged: 'Termin geändert', by: 'von' },
+  he: { post: 'הודעה חדשה', postImportant: '📌 חשוב', plan: 'תוכנית חזרה', project: 'פרויקט חדש', dueToday: 'דדליין היום', dueTomorrow: 'דדליין מחר', taskToday: 'משימה להיום', taskTomorrow: 'משימה למחר', test: 'ההתראות פועלות.', mail: n => n > 1 ? `${n} מיילים חדשים` : 'מייל חדש', setlist: 'הסט־ליסט עודכן', evNew: { rehearsal: 'חזרה חדשה', gig: 'הופעה חדשה', other: 'אירוע חדש' }, evChanged: 'אירוע השתנה', by: 'ע״י' },
 };
 function pushMessage(lang, x) {
   const L = PUSH_TEXT[lang] || PUSH_TEXT.en;
@@ -655,6 +675,8 @@ function pushMessage(lang, x) {
   if (x.kind === 'mail') return { title: L.mail(x.n), body: [x.from && String(x.from).replace(/\s*<[^>]*>/, ''), x.subject].filter(Boolean).join(': ') };
   if (x.kind === 'setlist') return { title: L.setlist, body: x.name + by };
   if (x.kind === 'project') return { title: L.project, body: x.name + by };
+  if (x.kind === 'post') return { title: (x.important ? L.postImportant : L.post) + (x.by ? ' · ' + x.by : ''), body: x.text };
+  if (x.kind === 'plan') return { title: L.plan, body: [x.date && new Date(x.date + 'T12:00').toLocaleDateString(lang === 'he' ? 'he-IL' : lang, { weekday: 'short', day: 'numeric', month: 'short' }), x.name].filter(Boolean).join(' · ') + by };
   if (x.kind === 'due') return { title: L[(x.task ? 'task' : 'due') + (x.today ? 'Today' : 'Tomorrow')], body: x.task ? `${x.task}${x.owner ? ' (' + x.owner + ')' : ''} · ${x.name}` : x.name + (x.owner ? ` (${x.owner})` : '') };
   const d = x.date ? new Date(x.date + 'T12:00').toLocaleDateString(lang === 'he' ? 'he-IL' : lang, { weekday: 'short', day: 'numeric', month: 'short' }) : '';
   return { title: x.kind === 'evNew' ? (L.evNew[x.type] || L.evNew.other) : L.evChanged, body: `${x.title} · ${d}${x.start ? ' ' + x.start : ''}${by}` };
