@@ -112,7 +112,15 @@ async function api(req, env, url, ctx) {
       newBand = clean(b.bandName); if (!newBand) return json({ error: 'invalid' }, 400);
     }
     if (!b.terms) return json({ error: 'terms' }, 400);
-    if (await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(email).first()) return json({ error: 'email_taken' }, 409);
+    // someone who already has an account (e.g. plays in two bands): with the right password the same form just adds the band / joins
+    const ex = await env.DB.prepare('SELECT id,pw FROM users WHERE email=?').bind(email).first();
+    if (ex){
+      if (!(await checkPw(String(b.password), ex.pw))){ await new Promise(r => setTimeout(r, 600)); return json({ error: 'email_taken' }, 409); }
+      let bid = null;
+      if (join){ await addMember(env, join.id, ex.id, 'member'); bid = join.id; }
+      if (newBand){ bid = newId(); await env.DB.prepare('INSERT INTO bands (id,name,pw,data,created) VALUES (?,?,?,?,?)').bind(bid, newBand, '-', JSON.stringify({ legacyOff: true }), Date.now()).run(); await addMember(env, bid, ex.id, 'owner'); }
+      return withSession(env, { r: 'user', u: ex.id }, { ok: true, band: bid, existing: true });
+    }
     const uid = newId(), now = Date.now();
     await env.DB.prepare('INSERT INTO users (id,email,name,pw,admin,created) VALUES (?,?,?,?,0,?)').bind(uid, email, name, await hashPw(b.password), now).run();
     await kvSet(env, 'terms:' + uid, String(now));

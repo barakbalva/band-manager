@@ -30,6 +30,7 @@ Chords are always stored in the ORIGINAL key; the app transposes on display with
 - Tables `users` (email unique, PBKDF2 pw, `admin` = platform admin), `members` (band, user, role owner|member), `resets` (SHA-256 of one-time reset token, 3 days).
 - Login: email + password (`POST /api/login {email,password}`), session `{r:'user', u}`; `readSession` loads the user each request (name, email, admin → `me.r='admin'`).
 - Direct sign-up link **https://app.bandtwerp.com/#signup** opens the sign-up form (or says sign-up is closed).
+- One account, many bands: signing up with an email that already has an account + the right password just adds the new band (or joins the invite) to that account; wrong password → `email_taken` with a hint. Signed-in users also get "Start a band" in Settings when sign-up is open.
 - Sign-up `POST /api/signup`: with an invite token (joins as member) or, when admin switched "open sign-up" on (kv `signup_open`), with a new band name (becomes owner). `POST /api/bands` = signed-in user starts another band.
 - Invite link: `/#invite=<bandId>.<random>`; band keeps `inviteHash` + `inviteExp` (14 days) in `bands.data`; a new link replaces the old. Owners: `/api/band/:id/invite` (POST/DELETE), `/members` (GET), `/members/:uid` (PUT role, DELETE), `/members/:uid/reset` (POST → `/#reset=<token>` link; no email sending yet).
 - Band owners may also use `PUT /api/admin/band/:id` (name, calendarId, shared password, `legacyOff`) and `POST /api/admin/band/:id/inbox-token`; backups too.
